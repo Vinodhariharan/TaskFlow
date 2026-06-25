@@ -49,7 +49,9 @@ class TaskService {
     }).toList()
       ..sort((a, b) {
         if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
-        // Overdue first among incomplete
+        // Scheduled today first among incomplete
+        if (a.isScheduledToday != b.isScheduledToday) return a.isScheduledToday ? -1 : 1;
+        // Overdue next among incomplete
         if (a.isOverdue != b.isOverdue) return a.isOverdue ? -1 : 1;
         if (a.priority != b.priority) {
           return b.priority.index.compareTo(a.priority.index);

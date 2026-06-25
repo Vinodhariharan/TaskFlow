@@ -990,14 +990,18 @@ class _DateChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isOverdue ? AppColors.overdueColor : AppColors.dueTodayColor;
+    final baseColor = isOverdue ? AppColors.overdueColor : AppColors.dueTodayColor;
+    final textColor = context.isDark 
+        ? baseColor 
+        : (isOverdue ? const Color(0xFFD32F2F) : const Color(0xFFD97706));
+    final bgColor = baseColor.withValues(alpha: context.isDark ? 0.12 : 0.18);
     final label = isOverdue
         ? 'Was due ${DateFormat('MMM d').format(date)}'
         : 'Scheduled today';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: bgColor,
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
@@ -1008,13 +1012,13 @@ class _DateChip extends StatelessWidget {
                 ? Icons.warning_amber_rounded
                 : Icons.schedule_rounded,
             size: 10,
-            color: color,
+            color: textColor,
           ),
           const SizedBox(width: 4),
           Text(
             label,
             style: TextStyle(
-              color: color,
+              color: textColor,
               fontSize: 10,
               fontWeight: FontWeight.w600,
             ),
