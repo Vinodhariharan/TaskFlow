@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
+import '../models/category.dart';
 import '../models/expense.dart';
+import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 
 /// Accent color for the expense tab (kept local — not added to `main.dart`'s
@@ -9,7 +11,7 @@ import '../services/currency_settings.dart';
 const kExpenseAccent = Color(0xFF4CAF93);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Formatting & category metadata
+// Formatting
 // ─────────────────────────────────────────────────────────────────────────────
 
 String formatCurrency(double amount, {bool decimals = false}) {
@@ -20,65 +22,6 @@ String formatCurrency(double amount, {bool decimals = false}) {
     decimalDigits: decimals ? 2 : 0,
   );
   return fmt.format(amount);
-}
-
-extension ExpenseCategoryX on ExpenseCategory {
-  String get label {
-    switch (this) {
-      case ExpenseCategory.food:
-        return 'Food';
-      case ExpenseCategory.transport:
-        return 'Transport';
-      case ExpenseCategory.shopping:
-        return 'Shopping';
-      case ExpenseCategory.bills:
-        return 'Bills';
-      case ExpenseCategory.entertainment:
-        return 'Entertainment';
-      case ExpenseCategory.health:
-        return 'Health';
-      case ExpenseCategory.other:
-        return 'Other';
-    }
-  }
-
-  IconData get icon {
-    switch (this) {
-      case ExpenseCategory.food:
-        return Icons.restaurant_rounded;
-      case ExpenseCategory.transport:
-        return Icons.directions_car_filled_rounded;
-      case ExpenseCategory.shopping:
-        return Icons.shopping_bag_rounded;
-      case ExpenseCategory.bills:
-        return Icons.receipt_long_rounded;
-      case ExpenseCategory.entertainment:
-        return Icons.movie_rounded;
-      case ExpenseCategory.health:
-        return Icons.favorite_rounded;
-      case ExpenseCategory.other:
-        return Icons.more_horiz_rounded;
-    }
-  }
-
-  Color get color {
-    switch (this) {
-      case ExpenseCategory.food:
-        return const Color(0xFFFF9F5A);
-      case ExpenseCategory.transport:
-        return const Color(0xFF5AB4FF);
-      case ExpenseCategory.shopping:
-        return const Color(0xFFFF6584);
-      case ExpenseCategory.bills:
-        return const Color(0xFFFFD166);
-      case ExpenseCategory.entertainment:
-        return const Color(0xFFB388FF);
-      case ExpenseCategory.health:
-        return const Color(0xFF4CD9A0);
-      case ExpenseCategory.other:
-        return const Color(0xFF9090A8);
-    }
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -161,7 +104,7 @@ class KpiCard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 
 class CategoryChip extends StatelessWidget {
-  final ExpenseCategory category;
+  final Tag category;
   final bool selected;
   final VoidCallback onTap;
 
@@ -209,6 +152,169 @@ class CategoryChip extends StatelessWidget {
   }
 }
 
+/// A dashed "add new" chip, styled to sit alongside CategoryChip in a Wrap.
+class AddCategoryChip extends StatelessWidget {
+  final VoidCallback onTap;
+  const AddCategoryChip({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: context.inputBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: context.subtleColor, width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.add_rounded, size: 14, color: context.mutedColor),
+            const SizedBox(width: 4),
+            Text(
+              'New tag',
+              style: TextStyle(
+                color: context.mutedColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Opens a dialog to create a custom category (name + icon + color), and
+/// returns the created Category, or null if cancelled.
+Future<Tag?> showAddCategoryDialog(BuildContext context) {
+  final controller = TextEditingController();
+  int iconIndex = 0;
+  int colorIndex = 0;
+
+  return showDialog<Tag>(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        backgroundColor: context.sheetBg,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: Text('New tag', style: TextStyle(color: context.textColor)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                style: TextStyle(color: context.textColor),
+                decoration: InputDecoration(
+                  hintText: 'Tag name',
+                  hintStyle: TextStyle(color: context.mutedColor),
+                  filled: true,
+                  fillColor: context.inputBg,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Icon',
+                  style: TextStyle(
+                      color: context.mutedColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (int i = 0; i < kCategoryIconChoices.length; i++)
+                    GestureDetector(
+                      onTap: () => setDialogState(() => iconIndex = i),
+                      child: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: iconIndex == i
+                              ? kCategoryColorChoices[colorIndex]
+                                  .withValues(alpha: 0.2)
+                              : context.inputBg,
+                          borderRadius: BorderRadius.circular(10),
+                          border: iconIndex == i
+                              ? Border.all(
+                                  color: kCategoryColorChoices[colorIndex],
+                                  width: 1.5)
+                              : null,
+                        ),
+                        child: Icon(kCategoryIconChoices[i],
+                            size: 17,
+                            color: iconIndex == i
+                                ? kCategoryColorChoices[colorIndex]
+                                : context.mutedColor),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text('Color',
+                  style: TextStyle(
+                      color: context.mutedColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (int i = 0; i < kCategoryColorChoices.length; i++)
+                    GestureDetector(
+                      onTap: () => setDialogState(() => colorIndex = i),
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: kCategoryColorChoices[i],
+                          shape: BoxShape.circle,
+                          border: colorIndex == i
+                              ? Border.all(color: context.textColor, width: 2)
+                              : null,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text('Cancel', style: TextStyle(color: context.mutedColor)),
+          ),
+          TextButton(
+            onPressed: () async {
+              final label = controller.text.trim();
+              if (label.isEmpty) return;
+              final category = await CategoryService.instance.addCustomCategory(
+                  label: label, iconIndex: iconIndex, colorIndex: colorIndex);
+              if (dialogContext.mounted) {
+                Navigator.of(dialogContext).pop(category);
+              }
+            },
+            child: const Text('Create', style: TextStyle(color: kExpenseAccent)),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Expense tile
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,10 +333,12 @@ class ExpenseTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cat = expense.category;
     return ListenableBuilder(
-      listenable: CurrencySettings.instance,
-      builder: (context, _) => Dismissible(
+      listenable:
+          Listenable.merge([CurrencySettings.instance, CategoryService.instance]),
+      builder: (context, _) {
+        final cat = CategoryService.instance.getById(expense.categoryId);
+        return Dismissible(
       key: ValueKey('dismiss_expense_${expense.id}'),
       direction: DismissDirection.endToStart,
       confirmDismiss: (_) async {
@@ -346,7 +454,8 @@ class ExpenseTile extends StatelessWidget {
           ),
         ),
       ),
-      ),
+        );
+      },
     );
   }
 }

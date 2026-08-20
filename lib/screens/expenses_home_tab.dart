@@ -137,7 +137,7 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
               await _expenseService.addExpense(
                 title: expense.title,
                 amount: expense.amount,
-                category: expense.category,
+                categoryId: expense.categoryId,
                 date: expense.date,
                 note: expense.note,
               );

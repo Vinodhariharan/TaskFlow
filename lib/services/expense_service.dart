@@ -15,11 +15,11 @@ class ExpensePage {
 }
 
 class CategoryStat {
-  final ExpenseCategory category;
+  final String categoryId;
   final double amount;
   final int count;
   const CategoryStat(
-      {required this.category, required this.amount, required this.count});
+      {required this.categoryId, required this.amount, required this.count});
 }
 
 class ExpenseKpis {
@@ -63,7 +63,7 @@ class ExpenseService {
   Future<Expense> addExpense({
     required String title,
     required double amount,
-    required ExpenseCategory category,
+    required String categoryId,
     required DateTime date,
     String? note,
   }) async {
@@ -72,7 +72,7 @@ class ExpenseService {
       id: _uuid.v4(),
       title: title,
       amount: amount,
-      category: category,
+      categoryId: categoryId,
       date: date,
       note: note,
     );
@@ -109,7 +109,7 @@ class ExpenseService {
   Future<ExpensePage> queryExpenses({
     int page = 0,
     int pageSize = 20,
-    Set<ExpenseCategory>? categories,
+    Set<String>? categoryIds,
     DateTime? startDate,
     DateTime? endDate,
     String? searchQuery,
@@ -120,9 +120,9 @@ class ExpenseService {
     final query = searchQuery?.trim().toLowerCase();
 
     final filtered = all.where((e) {
-      if (categories != null &&
-          categories.isNotEmpty &&
-          !categories.contains(e.category)) {
+      if (categoryIds != null &&
+          categoryIds.isNotEmpty &&
+          !categoryIds.contains(e.categoryId)) {
         return false;
       }
       final d = _dateOnly(e.date);
@@ -153,19 +153,19 @@ class ExpenseService {
     final start = startDate != null ? _dateOnly(startDate) : null;
     final end = endDate != null ? _dateOnly(endDate) : null;
 
-    final amounts = <ExpenseCategory, double>{};
-    final counts = <ExpenseCategory, int>{};
+    final amounts = <String, double>{};
+    final counts = <String, int>{};
     for (final e in all) {
       final d = _dateOnly(e.date);
       if (start != null && d.isBefore(start)) continue;
       if (end != null && d.isAfter(end)) continue;
-      amounts[e.category] = (amounts[e.category] ?? 0) + e.amount;
-      counts[e.category] = (counts[e.category] ?? 0) + 1;
+      amounts[e.categoryId] = (amounts[e.categoryId] ?? 0) + e.amount;
+      counts[e.categoryId] = (counts[e.categoryId] ?? 0) + 1;
     }
 
     final stats = amounts.entries
         .map((e) => CategoryStat(
-            category: e.key, amount: e.value, count: counts[e.key] ?? 0))
+            categoryId: e.key, amount: e.value, count: counts[e.key] ?? 0))
         .toList()
       ..sort((a, b) => b.amount.compareTo(a.amount));
     return stats;
@@ -202,7 +202,7 @@ class ExpenseService {
   /// pagination, so a month's total is always correct even if only part of
   /// that month's items have been paged in on screen.
   Future<Map<DateTime, double>> getMonthlyTotals({
-    Set<ExpenseCategory>? categories,
+    Set<String>? categoryIds,
     DateTime? startDate,
     DateTime? endDate,
     String? searchQuery,
@@ -214,9 +214,9 @@ class ExpenseService {
 
     final Map<DateTime, double> totals = {};
     for (final e in all) {
-      if (categories != null &&
-          categories.isNotEmpty &&
-          !categories.contains(e.category)) {
+      if (categoryIds != null &&
+          categoryIds.isNotEmpty &&
+          !categoryIds.contains(e.categoryId)) {
         continue;
       }
       final d = _dateOnly(e.date);

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
+import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'expense_widgets.dart';
@@ -23,7 +24,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   final _searchController = TextEditingController();
   Timer? _debounce;
 
-  final Set<ExpenseCategory> _selectedCategories = {};
+  final Set<String> _selectedCategoryIds = {};
   DateTimeRange? _dateRange;
 
   List<Expense> _items = [];
@@ -38,7 +39,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
       DateTime(e.date.year, e.date.month, 1);
 
   bool get _filtersActive =>
-      _selectedCategories.isNotEmpty ||
+      _selectedCategoryIds.isNotEmpty ||
       _dateRange != null ||
       _searchController.text.trim().isNotEmpty;
 
@@ -46,6 +47,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    CategoryService.instance.load();
     _loadMore();
     _loadMonthlyTotals();
     _expenseService.getTitleSuggestions().then((titles) {
@@ -87,7 +89,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
 
   Future<void> _loadMonthlyTotals() async {
     final totals = await _expenseService.getMonthlyTotals(
-      categories: _selectedCategories.isEmpty ? null : _selectedCategories,
+      categoryIds: _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds,
       startDate: _dateRange?.start,
       endDate: _dateRange?.end,
       searchQuery: _searchController.text,
@@ -102,7 +104,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     final result = await _expenseService.queryExpenses(
       page: _page,
       pageSize: 20,
-      categories: _selectedCategories.isEmpty ? null : _selectedCategories,
+      categoryIds: _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds,
       startDate: _dateRange?.start,
       endDate: _dateRange?.end,
       searchQuery: _searchController.text,
@@ -194,7 +196,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                 await _expenseService.addExpense(
                   title: expense.title,
                   amount: expense.amount,
-                  category: expense.category,
+                  categoryId: expense.categoryId,
                   date: expense.date,
                   note: expense.note,
                 );
@@ -296,28 +298,31 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
             // Category chips
             SizedBox(
               height: 40,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: [
-                  for (final cat in ExpenseCategory.values) ...[
-                    CategoryChip(
-                      category: cat,
-                      selected: _selectedCategories.contains(cat),
-                      onTap: () {
-                        setState(() {
-                          if (_selectedCategories.contains(cat)) {
-                            _selectedCategories.remove(cat);
-                          } else {
-                            _selectedCategories.add(cat);
-                          }
-                        });
-                        _resetAndReload();
-                      },
-                    ),
-                    const SizedBox(width: 8),
+              child: ListenableBuilder(
+                listenable: CategoryService.instance,
+                builder: (context, _) => ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  children: [
+                    for (final cat in CategoryService.instance.all) ...[
+                      CategoryChip(
+                        category: cat,
+                        selected: _selectedCategoryIds.contains(cat.id),
+                        onTap: () {
+                          setState(() {
+                            if (_selectedCategoryIds.contains(cat.id)) {
+                              _selectedCategoryIds.remove(cat.id);
+                            } else {
+                              _selectedCategoryIds.add(cat.id);
+                            }
+                          });
+                          _resetAndReload();
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             const SizedBox(height: 12),
@@ -410,7 +415,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                           onAction: _filtersActive
                               ? () {
                                   setState(() {
-                                    _selectedCategories.clear();
+                                    _selectedCategoryIds.clear();
                                     _dateRange = null;
                                     _searchController.clear();
                                   });

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
+import '../services/category_service.dart';
 import 'expense_widgets.dart';
 
 class ViewExpenseSheet extends StatelessWidget {
@@ -13,7 +14,7 @@ class ViewExpenseSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cat = expense.category;
+    final cat = CategoryService.instance.getById(expense.categoryId);
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),

@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
+import '../models/category.dart';
 import '../models/expense.dart';
+import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_service.dart';
 import 'expense_widgets.dart';
@@ -22,7 +24,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _amountController;
   late final TextEditingController _noteController;
-  late ExpenseCategory _category;
+  late String _categoryId;
   late DateTime _date;
   bool _saving = false;
   List<String> _titleSuggestions = [];
@@ -35,8 +37,9 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
     _amountController =
         TextEditingController(text: e != null ? _stripTrailingZero(e.amount) : '');
     _noteController = TextEditingController(text: e?.note ?? '');
-    _category = e?.category ?? ExpenseCategory.food;
+    _categoryId = e?.categoryId ?? kBuiltInCategories.first.id;
     _date = e?.date ?? DateTime.now();
+    CategoryService.instance.load();
     _titleController.addListener(() => setState(() {}));
     _amountController.addListener(() => setState(() {}));
     widget.expenseService.getTitleSuggestions().then((titles) {
@@ -98,7 +101,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
       final updated = widget.editExpense!.copyWith(
         title: title,
         amount: amount,
-        category: _category,
+        categoryId: _categoryId,
         date: _date,
         note: note,
         clearNote: note == null,
@@ -108,7 +111,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
       await widget.expenseService.addExpense(
         title: title,
         amount: amount,
-        category: _category,
+        categoryId: _categoryId,
         date: _date,
         note: note,
       );
@@ -272,17 +275,28 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
                 fontWeight: FontWeight.w600,
               )),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final cat in ExpenseCategory.values)
-                CategoryChip(
-                  category: cat,
-                  selected: _category == cat,
-                  onTap: () => setState(() => _category = cat),
+          ListenableBuilder(
+            listenable: CategoryService.instance,
+            builder: (context, _) => Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final cat in CategoryService.instance.all)
+                  CategoryChip(
+                    category: cat,
+                    selected: _categoryId == cat.id,
+                    onTap: () => setState(() => _categoryId = cat.id),
+                  ),
+                AddCategoryChip(
+                  onTap: () async {
+                    final created = await showAddCategoryDialog(context);
+                    if (created != null) {
+                      setState(() => _categoryId = created.id);
+                    }
+                  },
                 ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 14),
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../main.dart';
+import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 import '../services/settings_service.dart';
 import 'expenses_home_tab.dart';
@@ -24,6 +25,7 @@ class _RootShellState extends State<RootShell> {
   void initState() {
     super.initState();
     CurrencySettings.instance.load();
+    CategoryService.instance.load();
     _settingsService.getDefaultTab().then((tab) {
       if (mounted && tab != _index) setState(() => _index = tab);
     });

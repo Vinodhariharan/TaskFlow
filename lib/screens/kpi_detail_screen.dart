@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../main.dart';
+import '../services/category_service.dart';
 import '../services/expense_service.dart';
 import 'expense_widgets.dart';
 
@@ -171,7 +172,7 @@ class _CategoryStatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cat = stat.category;
+    final cat = CategoryService.instance.getById(stat.categoryId);
     final pct = total == 0 ? 0.0 : stat.amount / total;
     final barFraction = maxAmount == 0 ? 0.0 : stat.amount / maxAmount;
 
