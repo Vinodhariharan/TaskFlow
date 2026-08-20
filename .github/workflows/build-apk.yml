@@ -40,7 +40,18 @@ jobs:
 
       - name: Print APK signing certificate fingerprint
         run: |
-          keytool -printcert -jarfile build/app/outputs/flutter-apk/app-release.apk
+          # keytool -printcert -jarfile only understands old-style JAR
+          # signing (v1) and reports "Not a signed jar file" for APKs
+          # signed with the modern v2/v3 Signature Scheme, even when
+          # correctly signed. apksigner (Android SDK build-tools) reads
+          # all schemes and is the correct tool for this.
+          SEARCH_DIRS=""
+          for d in "$ANDROID_HOME" "$ANDROID_SDK_ROOT" "$HOME/Android/Sdk" "/usr/local/lib/android/sdk"; do
+            if [ -n "$d" ] && [ -d "$d" ]; then SEARCH_DIRS="$SEARCH_DIRS $d"; fi
+          done
+          APKSIGNER=$(find $SEARCH_DIRS -name apksigner -type f 2>/dev/null | sort -V | tail -1)
+          echo "Using apksigner: $APKSIGNER"
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk
 
       - uses: actions/upload-artifact@v4
         with:
