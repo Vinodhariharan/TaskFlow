@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
+import '../services/currency_settings.dart';
 
 /// Accent color for the expense tab (kept local — not added to `main.dart`'s
 /// `AppColors` since that file is intentionally left untouched).
@@ -11,13 +12,15 @@ const kExpenseAccent = Color(0xFF4CAF93);
 // Formatting & category metadata
 // ─────────────────────────────────────────────────────────────────────────────
 
-final _currencyFormat =
-    NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
-final _currencyFormat2 =
-    NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
-
-String formatCurrency(double amount, {bool decimals = false}) =>
-    (decimals ? _currencyFormat2 : _currencyFormat).format(amount);
+String formatCurrency(double amount, {bool decimals = false}) {
+  final currency = CurrencySettings.instance.current;
+  final fmt = NumberFormat.currency(
+    locale: currency.locale,
+    symbol: currency.symbol,
+    decimalDigits: decimals ? 2 : 0,
+  );
+  return fmt.format(amount);
+}
 
 extension ExpenseCategoryX on ExpenseCategory {
   String get label {
@@ -92,7 +95,9 @@ class KpiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return ListenableBuilder(
+      listenable: CurrencySettings.instance,
+      builder: (context, _) => Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: context.cardColor,
@@ -133,6 +138,7 @@ class KpiCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -210,7 +216,9 @@ class ExpenseTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cat = expense.category;
-    return Dismissible(
+    return ListenableBuilder(
+      listenable: CurrencySettings.instance,
+      builder: (context, _) => Dismissible(
       key: ValueKey('dismiss_expense_${expense.id}'),
       direction: DismissDirection.endToStart,
       background: Container(
@@ -296,6 +304,52 @@ class ExpenseTile extends StatelessWidget {
             ),
           ),
         ),
+      ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Month banner (groups the All Expenses list by month, total on the left)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class MonthBanner extends StatelessWidget {
+  final DateTime month;
+  final double total;
+  const MonthBanner({super.key, required this.month, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 20, 16, 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: kExpenseAccent.withValues(alpha: context.isDark ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            formatCurrency(total, decimals: true),
+            style: const TextStyle(
+              color: kExpenseAccent,
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          Text(
+            DateFormat('MMMM yyyy').format(month).toUpperCase(),
+            style: TextStyle(
+              color: context.mutedColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
       ),
     );
   }

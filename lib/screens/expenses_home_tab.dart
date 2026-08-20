@@ -6,6 +6,7 @@ import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'all_expenses_screen.dart';
 import 'expense_widgets.dart';
+import 'view_expense_sheet.dart';
 
 class ExpensesHomeTab extends StatefulWidget {
   const ExpensesHomeTab({super.key});
@@ -73,13 +74,32 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
     _refresh();
   }
 
+  Future<void> _showViewExpense(Expense expense) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => ViewExpenseSheet(
+        expense: expense,
+        onEdit: () {
+          Navigator.of(sheetContext).pop();
+          _showAddExpense(editExpense: expense);
+        },
+      ),
+    );
+    _refresh();
+  }
+
   Future<void> _deleteExpense(Expense expense) async {
     HapticFeedback.mediumImpact();
     await _expenseService.deleteExpense(expense.id);
     _refresh();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 4),
           content: Text('Expense deleted',
               style: TextStyle(color: context.textColor)),
           backgroundColor: context.cardColor,
@@ -244,6 +264,32 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                                   fontWeight: FontWeight.w700,
                                 )),
                           ),
+                          const Spacer(),
+                          GestureDetector(
+                            onTap: () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                    builder: (_) => const AllExpensesScreen()),
+                              );
+                              _refresh();
+                            },
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'View all',
+                                  style: TextStyle(
+                                    color: kExpenseAccent,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 2),
+                                const Icon(Icons.chevron_right_rounded,
+                                    size: 16, color: kExpenseAccent),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -253,7 +299,7 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                       (ctx, i) => ExpenseTile(
                         key: ValueKey(recent[i].id),
                         expense: recent[i],
-                        onTap: () => _showAddExpense(editExpense: recent[i]),
+                        onTap: () => _showViewExpense(recent[i]),
                         onDelete: () => _deleteExpense(recent[i]),
                       ),
                       childCount: recent.length,

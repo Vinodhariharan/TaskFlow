@@ -8,6 +8,7 @@ import '../models/expense.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'expense_widgets.dart';
+import 'view_expense_sheet.dart';
 
 class AllExpensesScreen extends StatefulWidget {
   const AllExpensesScreen({super.key});
@@ -30,6 +31,10 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   bool _hasMore = true;
   bool _isLoadingPage = false;
   bool _initialLoad = true;
+  Map<DateTime, double> _monthlyTotals = {};
+
+  static DateTime _monthKey(Expense e) =>
+      DateTime(e.date.year, e.date.month, 1);
 
   bool get _filtersActive =>
       _selectedCategories.isNotEmpty ||
@@ -41,6 +46,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     super.initState();
     _scrollController.addListener(_onScroll);
     _loadMore();
+    _loadMonthlyTotals();
   }
 
   @override
@@ -72,6 +78,18 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
       _initialLoad = true;
     });
     _loadMore();
+    _loadMonthlyTotals();
+  }
+
+  Future<void> _loadMonthlyTotals() async {
+    final totals = await _expenseService.getMonthlyTotals(
+      categories: _selectedCategories.isEmpty ? null : _selectedCategories,
+      startDate: _dateRange?.start,
+      endDate: _dateRange?.end,
+      searchQuery: _searchController.text,
+    );
+    if (!mounted) return;
+    setState(() => _monthlyTotals = totals);
   }
 
   Future<void> _loadMore() async {
@@ -131,6 +149,21 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
           expenseService: _expenseService, editExpense: expense),
     );
     _resetAndReload();
+  }
+
+  Future<void> _showViewExpense(Expense expense) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => ViewExpenseSheet(
+        expense: expense,
+        onEdit: () {
+          Navigator.of(sheetContext).pop();
+          _showEditExpense(expense);
+        },
+      ),
+    );
   }
 
   Future<void> _deleteExpense(Expense expense) async {
@@ -341,11 +374,25 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                               );
                             }
                             final e = _items[i];
-                            return ExpenseTile(
+                            final key = _monthKey(e);
+                            final isNewMonth =
+                                i == 0 || _monthKey(_items[i - 1]) != key;
+                            final tile = ExpenseTile(
                               key: ValueKey(e.id),
                               expense: e,
-                              onTap: () => _showEditExpense(e),
+                              onTap: () => _showViewExpense(e),
                               onDelete: () => _deleteExpense(e),
+                            );
+                            if (!isNewMonth) return tile;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                MonthBanner(
+                                  month: key,
+                                  total: _monthlyTotals[key] ?? 0,
+                                ),
+                                tile,
+                              ],
                             );
                           },
                         ),

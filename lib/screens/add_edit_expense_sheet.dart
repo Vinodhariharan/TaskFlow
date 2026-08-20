@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
+import '../services/currency_settings.dart';
 import '../services/expense_service.dart';
 import 'expense_widgets.dart';
 
@@ -138,7 +139,8 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
                 ),
               ],
       ),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -202,7 +204,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
             decoration: InputDecoration(
               hintText: '0.00',
               hintStyle: TextStyle(color: context.mutedColor, fontSize: 16),
-              prefixText: '₹  ',
+              prefixText: '${CurrencySettings.instance.current.symbol}  ',
               prefixStyle: TextStyle(
                   color: context.textColor,
                   fontSize: 16,
@@ -324,6 +326,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
             ),
           ),
         ],
+        ),
       ),
     );
   }

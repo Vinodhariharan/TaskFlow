@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../main.dart';
+import '../services/currency_settings.dart';
+import '../services/settings_service.dart';
 import 'expenses_home_tab.dart';
+import 'settings_screen.dart';
 
 /// Top-level shell that switches between the unmodified TaskFlow task list
 /// and the new Expenses tab via a segmented pill at the top of the screen.
@@ -15,6 +18,16 @@ class RootShell extends StatefulWidget {
 
 class _RootShellState extends State<RootShell> {
   int _index = 0;
+  final _settingsService = SettingsService();
+
+  @override
+  void initState() {
+    super.initState();
+    CurrencySettings.instance.load();
+    _settingsService.getDefaultTab().then((tab) {
+      if (mounted && tab != _index) setState(() => _index = tab);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,13 +39,41 @@ class _RootShellState extends State<RootShell> {
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-              child: _TopTabBar(
-                index: _index,
-                onChanged: (i) {
-                  if (i == _index) return;
-                  HapticFeedback.selectionClick();
-                  setState(() => _index = i);
-                },
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _TopTabBar(
+                      index: _index,
+                      onChanged: (i) {
+                        if (i == _index) return;
+                        HapticFeedback.selectionClick();
+                        setState(() => _index = i);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              SettingsScreen(notifier: widget.notifier),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: context.cardColor,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(Icons.settings_rounded,
+                          size: 20, color: context.mutedColor),
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(

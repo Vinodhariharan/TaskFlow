@@ -135,6 +135,42 @@ class ExpenseService {
     return ExpensePage(items: items, hasMore: to < filtered.length);
   }
 
+  /// Total spend per calendar month (key = first-of-month DateTime), for
+  /// whatever set of expenses matches the given filters — independent of
+  /// pagination, so a month's total is always correct even if only part of
+  /// that month's items have been paged in on screen.
+  Future<Map<DateTime, double>> getMonthlyTotals({
+    Set<ExpenseCategory>? categories,
+    DateTime? startDate,
+    DateTime? endDate,
+    String? searchQuery,
+  }) async {
+    final all = await _loadAll();
+    final start = startDate != null ? _dateOnly(startDate) : null;
+    final end = endDate != null ? _dateOnly(endDate) : null;
+    final query = searchQuery?.trim().toLowerCase();
+
+    final Map<DateTime, double> totals = {};
+    for (final e in all) {
+      if (categories != null &&
+          categories.isNotEmpty &&
+          !categories.contains(e.category)) {
+        continue;
+      }
+      final d = _dateOnly(e.date);
+      if (start != null && d.isBefore(start)) continue;
+      if (end != null && d.isAfter(end)) continue;
+      if (query != null && query.isNotEmpty) {
+        final inTitle = e.title.toLowerCase().contains(query);
+        final inNote = (e.note ?? '').toLowerCase().contains(query);
+        if (!inTitle && !inNote) continue;
+      }
+      final key = DateTime(d.year, d.month, 1);
+      totals[key] = (totals[key] ?? 0) + e.amount;
+    }
+    return totals;
+  }
+
   /// Yearly / last-30-days / trailing-12-month monthly average / this-month totals.
   Future<ExpenseKpis> getKpis({DateTime? now}) async {
     final n = _dateOnly(now ?? DateTime.now());

@@ -220,8 +220,11 @@ class _HomeScreenState extends State<HomeScreen>
     await _taskService.deleteTask(task.id);
     _refresh();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
         SnackBar(
+          duration: const Duration(seconds: 4),
           content: Text('Task deleted',
               style: TextStyle(color: context.textColor)),
           backgroundColor: context.cardColor,
@@ -250,7 +253,6 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final dateStr = DateFormat('EEEE, MMM d').format(now);
-    final isDark = context.isDark;
 
     return Scaffold(
       backgroundColor: context.bgColor,
@@ -336,44 +338,6 @@ class _HomeScreenState extends State<HomeScreen>
                                           ),
                                         ),
                                       ),
-                                    const SizedBox(width: 8),
-                                    GestureDetector(
-                                      onTap: () {
-                                        HapticFeedback.selectionClick();
-                                        widget.notifier.toggle();
-                                      },
-                                      child: AnimatedContainer(
-                                        duration: const Duration(
-                                            milliseconds: 300),
-                                        width: 38,
-                                        height: 38,
-                                        decoration: BoxDecoration(
-                                          color: context.cardColor,
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                        child: AnimatedSwitcher(
-                                          duration: const Duration(
-                                              milliseconds: 300),
-                                          transitionBuilder:
-                                              (child, anim) =>
-                                                  RotationTransition(
-                                            turns: anim,
-                                            child: FadeTransition(
-                                                opacity: anim,
-                                                child: child),
-                                          ),
-                                          child: Icon(
-                                            isDark
-                                                ? Icons.light_mode_rounded
-                                                : Icons.dark_mode_rounded,
-                                            key: ValueKey(isDark),
-                                            color: context.mutedColor,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ],
@@ -1200,7 +1164,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 ),
               ],
       ),
-      child: Column(
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1406,6 +1371,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
