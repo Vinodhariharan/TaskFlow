@@ -38,6 +38,10 @@ jobs:
       - run: flutter pub get
       - run: flutter build apk --release --android-skip-build-dependency-validation
 
+      - name: Print APK signing certificate fingerprint
+        run: |
+          keytool -printcert -jarfile build/app/outputs/flutter-apk/app-release.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: taskflow-apk
