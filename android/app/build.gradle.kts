@@ -30,11 +30,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // A shared, non-secret debug keystore committed at android/debug.keystore
+        // (well-known password "android"), used explicitly here instead of
+        // relying on AGP's implicit per-machine debug signing config, so every
+        // build — local or CI, any machine — produces a byte-identical signing
+        // identity and installs are never blocked by a certificate mismatch.
+        create("sharedDebug") {
+            storeFile = file("../debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Signing with the shared debug keystore for now, so `flutter run
+            // --release` works and CI/local builds share one identity.
+            signingConfig = signingConfigs.getByName("sharedDebug")
         }
     }
 }

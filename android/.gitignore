@@ -12,3 +12,8 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Exception: a shared, non-secret DEBUG keystore (well-known password
+# "android") committed intentionally so every build — local or CI — signs
+# with the exact same debug identity. Never do this for a release keystore.
+!debug.keystore
