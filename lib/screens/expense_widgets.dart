@@ -89,18 +89,28 @@ class KpiCard extends StatelessWidget {
   final String label;
   final double value;
   final IconData icon;
+  final VoidCallback? onTap;
 
   const KpiCard(
-      {super.key, required this.label, required this.value, required this.icon});
+      {super.key,
+      required this.label,
+      required this.value,
+      required this.icon,
+      this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: CurrencySettings.instance,
-      builder: (context, _) => Container(
+      builder: (context, _) => Material(
+      color: context.cardColor,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: context.cardColor,
         borderRadius: BorderRadius.circular(18),
         boxShadow: context.isDark
             ? null
@@ -138,6 +148,8 @@ class KpiCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+      ),
       ),
       ),
     );
@@ -221,6 +233,35 @@ class ExpenseTile extends StatelessWidget {
       builder: (context, _) => Dismissible(
       key: ValueKey('dismiss_expense_${expense.id}'),
       direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            backgroundColor: context.sheetBg,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18)),
+            title: Text('Delete expense?',
+                style: TextStyle(color: context.textColor)),
+            content: Text(
+              'Delete "${expense.title}"? This can be undone right after.',
+              style: TextStyle(color: context.secondaryTextColor),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text('Cancel',
+                    style: TextStyle(color: context.mutedColor)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Delete',
+                    style: TextStyle(color: AppColors.danger)),
+              ),
+            ],
+          ),
+        );
+        return confirmed ?? false;
+      },
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 24),
@@ -308,6 +349,59 @@ class ExpenseTile extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared autocomplete suggestions dropdown (title fields, search field)
+// ─────────────────────────────────────────────────────────────────────────────
+
+Widget buildSuggestionsOptionsView(
+  BuildContext context,
+  AutocompleteOnSelected<String> onSelected,
+  Iterable<String> options,
+  double width,
+) {
+  return Align(
+    alignment: Alignment.topLeft,
+    child: Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(14),
+      color: context.cardColor,
+      child: SizedBox(
+        width: width,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            shrinkWrap: true,
+            itemCount: options.length,
+            itemBuilder: (context, i) {
+              final option = options.elementAt(i);
+              return InkWell(
+                onTap: () => onSelected(option),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history_rounded,
+                          size: 15, color: context.mutedColor),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(option,
+                            style: TextStyle(
+                                color: context.textColor, fontSize: 14)),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

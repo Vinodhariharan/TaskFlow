@@ -14,6 +14,14 @@ class ExpensePage {
   const ExpensePage({required this.items, required this.hasMore});
 }
 
+class CategoryStat {
+  final ExpenseCategory category;
+  final double amount;
+  final int count;
+  const CategoryStat(
+      {required this.category, required this.amount, required this.count});
+}
+
 class ExpenseKpis {
   final double yearly;
   final double last30Days;
@@ -133,6 +141,60 @@ class ExpenseService {
     final to = (from + pageSize).clamp(0, filtered.length);
     final items = from < filtered.length ? filtered.sublist(from, to) : <Expense>[];
     return ExpensePage(items: items, hasMore: to < filtered.length);
+  }
+
+  /// Per-category spend + count within an optional date range, sorted by
+  /// amount descending — for the KPI detail breakdown.
+  Future<List<CategoryStat>> getCategoryBreakdown({
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final all = await _loadAll();
+    final start = startDate != null ? _dateOnly(startDate) : null;
+    final end = endDate != null ? _dateOnly(endDate) : null;
+
+    final amounts = <ExpenseCategory, double>{};
+    final counts = <ExpenseCategory, int>{};
+    for (final e in all) {
+      final d = _dateOnly(e.date);
+      if (start != null && d.isBefore(start)) continue;
+      if (end != null && d.isAfter(end)) continue;
+      amounts[e.category] = (amounts[e.category] ?? 0) + e.amount;
+      counts[e.category] = (counts[e.category] ?? 0) + 1;
+    }
+
+    final stats = amounts.entries
+        .map((e) => CategoryStat(
+            category: e.key, amount: e.value, count: counts[e.key] ?? 0))
+        .toList()
+      ..sort((a, b) => b.amount.compareTo(a.amount));
+    return stats;
+  }
+
+  /// Distinct past expense titles, ranked by how often they've been used
+  /// (ties broken by most recent use), for autocomplete suggestions.
+  Future<List<String>> getTitleSuggestions() async {
+    final all = await _loadAll();
+    final freq = <String, int>{};
+    final lastUsed = <String, DateTime>{};
+    final display = <String, String>{};
+    for (final e in all) {
+      final key = e.title.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      freq[key] = (freq[key] ?? 0) + 1;
+      final existing = lastUsed[key];
+      if (existing == null || e.date.isAfter(existing)) {
+        lastUsed[key] = e.date;
+        display[key] = e.title.trim();
+      }
+    }
+    final keys = freq.keys.toList()
+      ..sort((a, b) {
+        final byFreq = freq[b]!.compareTo(freq[a]!);
+        if (byFreq != 0) return byFreq;
+        return lastUsed[b]!.compareTo(lastUsed[a]!);
+      });
+    return keys.map((k) => display[k]!).toList();
   }
 
   /// Total spend per calendar month (key = first-of-month DateTime), for

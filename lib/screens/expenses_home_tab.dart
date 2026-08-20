@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'all_expenses_screen.dart';
 import 'expense_widgets.dart';
+import 'kpi_detail_screen.dart';
 import 'view_expense_sheet.dart';
 
 class ExpensesHomeTab extends StatefulWidget {
@@ -23,6 +25,7 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
   late Future<RecentExpensesResult> _recentFuture;
   bool _hasMoreRecent = false;
   bool _navigated = false;
+  double _pullProgress = 0.0;
 
   @override
   void initState() {
@@ -52,15 +55,37 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
     if (_navigated || !_hasMoreRecent) return;
     if (!_scrollController.hasClients) return;
     final threshold = MediaQuery.of(context).size.height * 0.9;
-    if (_scrollController.position.pixels >= threshold) {
+    final pixels = _scrollController.position.pixels;
+    final progress = (pixels / threshold).clamp(0.0, 1.0);
+    if ((progress - _pullProgress).abs() > 0.01) {
+      setState(() => _pullProgress = progress);
+    }
+    if (pixels >= threshold) {
       _navigated = true;
       Navigator.of(context)
           .push(MaterialPageRoute(builder: (_) => const AllExpensesScreen()))
           .then((_) {
         _navigated = false;
-        if (mounted) _refresh();
+        if (mounted) {
+          setState(() => _pullProgress = 0.0);
+          _refresh();
+        }
       });
     }
+  }
+
+  void _openKpiDetail(String title, String subtitle, DateTime start, DateTime end) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => KpiDetailScreen(
+          title: title,
+          subtitle: subtitle,
+          startDate: start,
+          endDate: end,
+          expenseService: _expenseService,
+        ),
+      ),
+    );
   }
 
   Future<void> _showAddExpense({Expense? editExpense}) async {
@@ -137,7 +162,9 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
             final isEmpty = recentSnap.connectionState == ConnectionState.done &&
                 recent.isEmpty;
 
-            return CustomScrollView(
+            return Stack(
+              children: [
+                CustomScrollView(
               controller: _scrollController,
               physics: const BouncingScrollPhysics(),
               slivers: [
@@ -168,26 +195,53 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                       crossAxisSpacing: 12,
                       childAspectRatio: 1.5,
                       children: [
-                        KpiCard(
-                          label: 'This year',
-                          value: kpis?.yearly ?? 0,
-                          icon: Icons.calendar_month_rounded,
-                        ),
-                        KpiCard(
-                          label: 'Last 30 days',
-                          value: kpis?.last30Days ?? 0,
-                          icon: Icons.date_range_rounded,
-                        ),
-                        KpiCard(
-                          label: 'Monthly avg (12mo)',
-                          value: kpis?.monthlyAverage ?? 0,
-                          icon: Icons.bar_chart_rounded,
-                        ),
-                        KpiCard(
-                          label: 'This month',
-                          value: kpis?.thisMonth ?? 0,
-                          icon: Icons.today_rounded,
-                        ),
+                        Builder(builder: (context) {
+                          final now = DateTime.now();
+                          return KpiCard(
+                            label: 'This year',
+                            value: kpis?.yearly ?? 0,
+                            icon: Icons.calendar_month_rounded,
+                            onTap: () => _openKpiDetail('This Year',
+                                '${now.year}', DateTime(now.year, 1, 1), now),
+                          );
+                        }),
+                        Builder(builder: (context) {
+                          final now = DateTime.now();
+                          final start =
+                              now.subtract(const Duration(days: 29));
+                          return KpiCard(
+                            label: 'Last 30 days',
+                            value: kpis?.last30Days ?? 0,
+                            icon: Icons.date_range_rounded,
+                            onTap: () => _openKpiDetail(
+                                'Last 30 Days', 'Rolling window', start, now),
+                          );
+                        }),
+                        Builder(builder: (context) {
+                          final now = DateTime.now();
+                          final start =
+                              DateTime(now.year, now.month - 11, 1);
+                          return KpiCard(
+                            label: 'Monthly avg (12mo)',
+                            value: kpis?.monthlyAverage ?? 0,
+                            icon: Icons.bar_chart_rounded,
+                            onTap: () => _openKpiDetail('Monthly Average',
+                                'Trailing 12 months', start, now),
+                          );
+                        }),
+                        Builder(builder: (context) {
+                          final now = DateTime.now();
+                          return KpiCard(
+                            label: 'This month',
+                            value: kpis?.thisMonth ?? 0,
+                            icon: Icons.today_rounded,
+                            onTap: () => _openKpiDetail(
+                                'This Month',
+                                DateFormat('MMMM yyyy').format(now),
+                                DateTime(now.year, now.month, 1),
+                                now),
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -307,6 +361,56 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                   ),
                   const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
+              ],
+                ),
+                if (_pullProgress > 0)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 24,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: Opacity(
+                          opacity: _pullProgress,
+                          child: Transform.scale(
+                            scale: 0.85 + (0.15 * _pullProgress),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: kExpenseAccent,
+                                borderRadius: BorderRadius.circular(24),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black
+                                        .withValues(alpha: 0.2),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.keyboard_arrow_up_rounded,
+                                      color: Colors.white, size: 18),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Keep scrolling for all expenses',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             );
           },

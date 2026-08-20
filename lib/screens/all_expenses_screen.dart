@@ -32,6 +32,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   bool _isLoadingPage = false;
   bool _initialLoad = true;
   Map<DateTime, double> _monthlyTotals = {};
+  List<String> _titleSuggestions = [];
 
   static DateTime _monthKey(Expense e) =>
       DateTime(e.date.year, e.date.month, 1);
@@ -47,6 +48,9 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     _scrollController.addListener(_onScroll);
     _loadMore();
     _loadMonthlyTotals();
+    _expenseService.getTitleSuggestions().then((titles) {
+      if (mounted) setState(() => _titleSuggestions = titles);
+    });
   }
 
   @override
@@ -170,6 +174,36 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     HapticFeedback.mediumImpact();
     await _expenseService.deleteExpense(expense.id);
     setState(() => _items.removeWhere((e) => e.id == expense.id));
+    _loadMonthlyTotals();
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 4),
+            content: Text('Expense deleted',
+                style: TextStyle(color: context.textColor)),
+            backgroundColor: context.cardColor,
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            action: SnackBarAction(
+              label: 'Undo',
+              textColor: kExpenseAccent,
+              onPressed: () async {
+                await _expenseService.addExpense(
+                  title: expense.title,
+                  amount: expense.amount,
+                  category: expense.category,
+                  date: expense.date,
+                  note: expense.note,
+                );
+                _resetAndReload();
+              },
+            ),
+          ),
+        );
+    }
   }
 
   @override
@@ -210,27 +244,51 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Search
+            // Search (with suggestions from previously used titles)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: TextField(
-                controller: _searchController,
-                onChanged: _onSearchChanged,
-                style: TextStyle(color: context.textColor, fontSize: 14),
-                decoration: InputDecoration(
-                  hintText: 'Search expenses',
-                  hintStyle: TextStyle(color: context.mutedColor, fontSize: 14),
-                  prefixIcon:
-                      Icon(Icons.search_rounded, size: 20, color: context.mutedColor),
-                  filled: true,
-                  fillColor: context.cardColor,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return RawAutocomplete<String>(
+                    textEditingController: _searchController,
+                    focusNode: FocusNode(),
+                    optionsBuilder: (value) {
+                      final q = value.text.trim().toLowerCase();
+                      if (q.isEmpty) return const Iterable<String>.empty();
+                      return _titleSuggestions
+                          .where((t) => t.toLowerCase().contains(q))
+                          .take(6);
+                    },
+                    onSelected: (_) => _resetAndReload(),
+                    fieldViewBuilder: (context, controller, focusNode, _) {
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        onChanged: _onSearchChanged,
+                        style: TextStyle(
+                            color: context.textColor, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Search expenses',
+                          hintStyle: TextStyle(
+                              color: context.mutedColor, fontSize: 14),
+                          prefixIcon: Icon(Icons.search_rounded,
+                              size: 20, color: context.mutedColor),
+                          filled: true,
+                          fillColor: context.cardColor,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                      );
+                    },
+                    optionsViewBuilder: (context, onSelected, options) =>
+                        buildSuggestionsOptionsView(context, onSelected,
+                            options, constraints.maxWidth),
+                  );
+                },
               ),
             ),
             const SizedBox(height: 12),

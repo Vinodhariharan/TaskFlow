@@ -25,6 +25,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
   late ExpenseCategory _category;
   late DateTime _date;
   bool _saving = false;
+  List<String> _titleSuggestions = [];
 
   @override
   void initState() {
@@ -38,6 +39,9 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
     _date = e?.date ?? DateTime.now();
     _titleController.addListener(() => setState(() {}));
     _amountController.addListener(() => setState(() {}));
+    widget.expenseService.getTitleSuggestions().then((titles) {
+      if (mounted) setState(() => _titleSuggestions = titles);
+    });
   }
 
   String _stripTrailingZero(double v) {
@@ -166,27 +170,49 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
           ),
           const SizedBox(height: 16),
 
-          // Title
-          TextField(
-            controller: _titleController,
-            autofocus: true,
-            textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(
-                color: context.textColor,
-                fontSize: 16,
-                fontWeight: FontWeight.w500),
-            decoration: InputDecoration(
-              hintText: 'What did you spend on?',
-              hintStyle: TextStyle(color: context.mutedColor, fontSize: 16),
-              filled: true,
-              fillColor: context.inputBg,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            ),
+          // Title (with suggestions from previously used titles)
+          LayoutBuilder(
+            builder: (context, constraints) {
+              return RawAutocomplete<String>(
+                textEditingController: _titleController,
+                focusNode: FocusNode(),
+                optionsBuilder: (value) {
+                  final q = value.text.trim().toLowerCase();
+                  if (q.isEmpty) return const Iterable<String>.empty();
+                  return _titleSuggestions
+                      .where((t) => t.toLowerCase().contains(q))
+                      .take(6);
+                },
+                fieldViewBuilder: (context, controller, focusNode, _) {
+                  return TextField(
+                    controller: controller,
+                    focusNode: focusNode,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: TextStyle(
+                        color: context.textColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500),
+                    decoration: InputDecoration(
+                      hintText: 'What did you spend on?',
+                      hintStyle:
+                          TextStyle(color: context.mutedColor, fontSize: 16),
+                      filled: true,
+                      fillColor: context.inputBg,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                    ),
+                  );
+                },
+                optionsViewBuilder: (context, onSelected, options) =>
+                    buildSuggestionsOptionsView(
+                        context, onSelected, options, constraints.maxWidth),
+              );
+            },
           ),
           const SizedBox(height: 10),
 
@@ -215,6 +241,22 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
                 borderRadius: BorderRadius.circular(14),
                 borderSide: BorderSide.none,
               ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.danger, width: 1),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
+              ),
+              errorStyle: const TextStyle(color: AppColors.danger, fontSize: 12),
+              errorText: _amountController.text.isNotEmpty && amount == null
+                  ? 'Enter a valid number'
+                  : _amountController.text.isNotEmpty &&
+                          amount != null &&
+                          amount <= 0
+                      ? 'Amount must be greater than 0'
+                      : null,
               contentPadding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             ),
