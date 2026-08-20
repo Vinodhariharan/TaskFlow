@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../main.dart';
 import '../services/currency_settings.dart';
+import '../services/expense_service.dart';
 import '../services/settings_service.dart';
 import 'expense_widgets.dart';
+import 'import_expenses_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ThemeNotifier notifier;
@@ -16,6 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const _appVersion = '1.0.0';
 
   final _settingsService = SettingsService();
+  final _expenseService = ExpenseService();
   int _defaultTab = 0;
 
   @override
@@ -147,6 +150,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                 ],
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            _SectionLabel('DATA'),
+            _SettingsCard(
+              children: [
+                _SettingsRow(
+                  icon: Icons.upload_file_rounded,
+                  title: 'Import expenses from CSV',
+                  subtitle: 'Bring in expenses from a spreadsheet, with a template',
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: context.mutedColor, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ImportExpensesScreen(expenseService: _expenseService),
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 20),

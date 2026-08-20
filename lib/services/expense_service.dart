@@ -95,6 +95,15 @@ class ExpenseService {
     await _saveAll(all);
   }
 
+  /// Bulk-append pre-built expenses (e.g. from a CSV import) in one save,
+  /// instead of one load+save cycle per expense.
+  Future<void> importExpenses(List<Expense> expenses) async {
+    if (expenses.isEmpty) return;
+    final all = await _loadAll();
+    all.addAll(expenses);
+    await _saveAll(all);
+  }
+
   /// Most recent expenses (newest first), capped at [limit].
   Future<RecentExpensesResult> getRecentExpenses({int limit = 12}) async {
     final all = await _loadAll();
