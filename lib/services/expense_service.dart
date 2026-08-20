@@ -35,12 +35,58 @@ class ExpenseKpis {
   });
 }
 
+/// Bucket size for [ExpenseService.getTrend] — chosen automatically from the
+/// span of the requested range unless overridden.
+enum TrendGranularity { day, week, month }
+
+class TrendPoint {
+  final DateTime bucketStart;
+  final double amount;
+  const TrendPoint({required this.bucketStart, required this.amount});
+}
+
+class TrendResult {
+  final TrendGranularity granularity;
+  final List<TrendPoint> points;
+  const TrendResult({required this.granularity, required this.points});
+}
+
 class ExpenseService {
   static const _expensesKey = 'expenses_v1';
   static const _uuid = Uuid();
 
   static DateTime _dateOnly(DateTime dt) =>
       DateTime(dt.year, dt.month, dt.day);
+
+  static TrendGranularity _autoGranularity(DateTime start, DateTime end) {
+    final days = end.difference(start).inDays + 1;
+    if (days <= 35) return TrendGranularity.day;
+    if (days <= 140) return TrendGranularity.week;
+    return TrendGranularity.month;
+  }
+
+  static DateTime _bucketStart(DateTime d, TrendGranularity g) {
+    switch (g) {
+      case TrendGranularity.day:
+        return DateTime(d.year, d.month, d.day);
+      case TrendGranularity.week:
+        final monday = d.subtract(Duration(days: d.weekday - 1));
+        return DateTime(monday.year, monday.month, monday.day);
+      case TrendGranularity.month:
+        return DateTime(d.year, d.month, 1);
+    }
+  }
+
+  static DateTime _advanceBucket(DateTime bucketStart, TrendGranularity g) {
+    switch (g) {
+      case TrendGranularity.day:
+        return bucketStart.add(const Duration(days: 1));
+      case TrendGranularity.week:
+        return bucketStart.add(const Duration(days: 7));
+      case TrendGranularity.month:
+        return DateTime(bucketStart.year, bucketStart.month + 1, 1);
+    }
+  }
 
   // ── Low-level persistence ──────────────────────────────────────────────────
 
@@ -286,5 +332,46 @@ class ExpenseService {
       monthlyAverage: trailingSum / monthsCount,
       thisMonth: thisMonth,
     );
+  }
+
+  /// Totals bucketed by day/week/month across [startDate, endDate]
+  /// (inclusive). Every bucket in range is present, even with a 0 total, so
+  /// a trend chart never has gaps. Granularity is chosen automatically from
+  /// the range's span unless [granularity] is given explicitly.
+  Future<TrendResult> getTrend({
+    required DateTime startDate,
+    required DateTime endDate,
+    TrendGranularity? granularity,
+    Set<String>? categoryIds,
+  }) async {
+    final g = granularity ?? _autoGranularity(startDate, endDate);
+    final start = _dateOnly(startDate);
+    final end = _dateOnly(endDate);
+    final all = await _loadAll();
+
+    final totals = <DateTime, double>{};
+    var cursor = _bucketStart(start, g);
+    while (!cursor.isAfter(end)) {
+      totals[cursor] = 0;
+      cursor = _advanceBucket(cursor, g);
+    }
+
+    for (final e in all) {
+      final d = _dateOnly(e.date);
+      if (d.isBefore(start) || d.isAfter(end)) continue;
+      if (categoryIds != null &&
+          categoryIds.isNotEmpty &&
+          !categoryIds.contains(e.categoryId)) {
+        continue;
+      }
+      final bucket = _bucketStart(d, g);
+      totals[bucket] = (totals[bucket] ?? 0) + e.amount;
+    }
+
+    final points = totals.entries
+        .map((e) => TrendPoint(bucketStart: e.key, amount: e.value))
+        .toList()
+      ..sort((a, b) => a.bucketStart.compareTo(b.bucketStart));
+    return TrendResult(granularity: g, points: points);
   }
 }
