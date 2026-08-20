@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
 import 'services/task_service.dart';
+import 'screens/root_shell.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -126,7 +127,7 @@ class TaskFlowApp extends StatelessWidget {
       themeMode: notifier.mode,
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
-      home: HomeScreen(notifier: notifier),
+      home: RootShell(notifier: notifier),
     );
   }
 }
