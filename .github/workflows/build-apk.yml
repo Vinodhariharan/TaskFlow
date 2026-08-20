@@ -14,6 +14,27 @@ jobs:
           flutter-version: '3.47.1'
           channel: 'stable'
 
+      # Runners are ephemeral, so without this each run gets a brand new
+      # random debug signing key, and Android refuses to install an "update"
+      # signed with a different certificate than what's already on a phone.
+      # Cache the debug keystore so every build shares the same signing
+      # identity and can be installed over a previous build.
+      - name: Restore debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: taskflow-debug-keystore-v1
+
+      - name: Create debug keystore if not cached
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkey -v -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - run: flutter pub get
       - run: flutter build apk --release --android-skip-build-dependency-validation
 
