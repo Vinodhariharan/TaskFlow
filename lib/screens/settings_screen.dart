@@ -3,7 +3,9 @@ import '../main.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_service.dart';
 import '../services/settings_service.dart';
+import 'category_management_screen.dart';
 import 'expense_widgets.dart';
+import 'export_expenses_screen.dart';
 import 'import_expenses_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -154,6 +156,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
 
+            _SectionLabel('CATEGORIES'),
+            _SettingsCard(
+              children: [
+                _SettingsRow(
+                  icon: Icons.sell_rounded,
+                  title: 'Manage categories',
+                  subtitle: 'Edit built-in tags, add or delete custom ones',
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: context.mutedColor, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CategoryManagementScreen(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
             _SectionLabel('DATA'),
             _SettingsCard(
               children: [
@@ -167,6 +188,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     MaterialPageRoute(
                       builder: (_) =>
                           ImportExpensesScreen(expenseService: _expenseService),
+                    ),
+                  ),
+                ),
+                _Divider(),
+                _SettingsRow(
+                  icon: Icons.download_rounded,
+                  title: 'Export expenses to CSV',
+                  subtitle: 'All expenses, or a date range you choose',
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: context.mutedColor, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ExportExpensesScreen(expenseService: _expenseService),
                     ),
                   ),
                 ),

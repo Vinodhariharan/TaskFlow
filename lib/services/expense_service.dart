@@ -150,6 +150,27 @@ class ExpenseService {
     await _saveAll(all);
   }
 
+  /// How many expenses currently use [categoryId] — used before deleting a
+  /// category, to decide whether a reassignment prompt is needed.
+  Future<int> countByCategory(String categoryId) async {
+    final all = await _loadAll();
+    return all.where((e) => e.categoryId == categoryId).length;
+  }
+
+  /// Moves every expense tagged [fromId] to [toId] in one load+save cycle —
+  /// used when a category is deleted and its expenses need a new home.
+  Future<void> reassignCategory({required String fromId, required String toId}) async {
+    final all = await _loadAll();
+    var changed = false;
+    for (final e in all) {
+      if (e.categoryId == fromId) {
+        e.categoryId = toId;
+        changed = true;
+      }
+    }
+    if (changed) await _saveAll(all);
+  }
+
   /// Most recent expenses (newest first), capped at [limit].
   Future<RecentExpensesResult> getRecentExpenses({int limit = 12}) async {
     final all = await _loadAll();

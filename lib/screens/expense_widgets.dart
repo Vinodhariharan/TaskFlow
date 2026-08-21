@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/category.dart';
@@ -66,8 +67,8 @@ class KpiCard extends StatelessWidget {
               ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Icon(icon, size: 18, color: kExpenseAccent),
           const SizedBox(height: 12),
@@ -84,6 +85,8 @@ class KpiCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: context.mutedColor,
               fontSize: 12,
@@ -94,6 +97,82 @@ class KpiCard extends StatelessWidget {
       ),
       ),
       ),
+      ),
+    );
+  }
+}
+
+/// A larger, full-width KPI card used as the single "hero" stat on the
+/// Expenses home tab, with the remaining KPIs shown as smaller [KpiCard]s
+/// beneath it — replaces an earlier 2x2 grid of four equally-weighted cards.
+class HeroKpiCard extends StatelessWidget {
+  final String label;
+  final double value;
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const HeroKpiCard(
+      {super.key,
+      required this.label,
+      required this.value,
+      required this.icon,
+      this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CurrencySettings.instance,
+      builder: (context, _) => Material(
+        color: kExpenseAccent,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        formatCurrency(value, decimals: true),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: Colors.white70),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -191,9 +270,20 @@ class AddCategoryChip extends StatelessWidget {
 /// Opens a dialog to create a custom category (name + icon + color), and
 /// returns the created Category, or null if cancelled.
 Future<Tag?> showAddCategoryDialog(BuildContext context) {
-  final controller = TextEditingController();
-  int iconIndex = 0;
-  int colorIndex = 0;
+  return _showCategoryFormDialog(context, existing: null);
+}
+
+/// Opens a dialog to edit an existing category's name/icon/color (built-in
+/// or custom) and returns the updated Tag, or null if cancelled.
+Future<Tag?> showEditCategoryDialog(BuildContext context, Tag existing) {
+  return _showCategoryFormDialog(context, existing: existing);
+}
+
+Future<Tag?> _showCategoryFormDialog(BuildContext context, {Tag? existing}) {
+  final isEdit = existing != null;
+  final controller = TextEditingController(text: existing?.label ?? '');
+  int iconIndex = existing?.iconIndex ?? 0;
+  int colorIndex = existing?.colorIndex ?? 0;
 
   return showDialog<Tag>(
     context: context,
@@ -201,7 +291,8 @@ Future<Tag?> showAddCategoryDialog(BuildContext context) {
       builder: (dialogContext, setDialogState) => AlertDialog(
         backgroundColor: context.sheetBg,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: Text('New tag', style: TextStyle(color: context.textColor)),
+        title: Text(isEdit ? 'Edit tag' : 'New tag',
+            style: TextStyle(color: context.textColor)),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -301,13 +392,26 @@ Future<Tag?> showAddCategoryDialog(BuildContext context) {
             onPressed: () async {
               final label = controller.text.trim();
               if (label.isEmpty) return;
-              final category = await CategoryService.instance.addCustomCategory(
-                  label: label, iconIndex: iconIndex, colorIndex: colorIndex);
+              final Tag category;
+              if (isEdit) {
+                category = Tag(
+                  id: existing.id,
+                  label: label,
+                  iconIndex: iconIndex,
+                  colorIndex: colorIndex,
+                  isBuiltIn: existing.isBuiltIn,
+                );
+                await CategoryService.instance.updateCategory(category);
+              } else {
+                category = await CategoryService.instance.addCustomCategory(
+                    label: label, iconIndex: iconIndex, colorIndex: colorIndex);
+              }
               if (dialogContext.mounted) {
                 Navigator.of(dialogContext).pop(category);
               }
             },
-            child: const Text('Create', style: TextStyle(color: kExpenseAccent)),
+            child: Text(isEdit ? 'Save' : 'Create',
+                style: const TextStyle(color: kExpenseAccent)),
           ),
         ],
       ),
@@ -319,7 +423,7 @@ Future<Tag?> showAddCategoryDialog(BuildContext context) {
 // Expense tile
 // ─────────────────────────────────────────────────────────────────────────────
 
-class ExpenseTile extends StatelessWidget {
+class ExpenseTile extends StatefulWidget {
   final Expense expense;
   final VoidCallback onTap;
   final VoidCallback onDelete;
@@ -332,128 +436,173 @@ class ExpenseTile extends StatelessWidget {
   });
 
   @override
+  State<ExpenseTile> createState() => _ExpenseTileState();
+}
+
+/// Swipe-left reveals a fixed-width delete icon behind the tile (capped at
+/// [_revealWidth] — the swipe itself never deletes); tapping that icon
+/// deletes immediately, with no confirmation dialog. This replaces a
+/// full-swipe-to-dismiss gesture that was too easy to trigger by accident
+/// while scrolling.
+class _ExpenseTileState extends State<ExpenseTile>
+    with SingleTickerProviderStateMixin {
+  static const _revealWidth = 72.0;
+
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _close() => _controller.animateTo(0.0, curve: Curves.easeOut);
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final delta = details.primaryDelta ?? 0;
+    _controller.value = (_controller.value - delta / _revealWidth).clamp(0.0, 1.0);
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final open = velocity < -300 || (velocity <= 300 && _controller.value > 0.5);
+    _controller.animateTo(open ? 1.0 : 0.0, curve: Curves.easeOut);
+  }
+
+  void _handleTap() {
+    if (_controller.value > 0) {
+      _close();
+      return;
+    }
+    widget.onTap();
+  }
+
+  void _handleDelete() {
+    HapticFeedback.mediumImpact();
+    widget.onDelete();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable:
           Listenable.merge([CurrencySettings.instance, CategoryService.instance]),
       builder: (context, _) {
-        final cat = CategoryService.instance.getById(expense.categoryId);
-        return Dismissible(
-      key: ValueKey('dismiss_expense_${expense.id}'),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            backgroundColor: context.sheetBg,
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18)),
-            title: Text('Delete expense?',
-                style: TextStyle(color: context.textColor)),
-            content: Text(
-              'Delete "${expense.title}"? This can be undone right after.',
-              style: TextStyle(color: context.secondaryTextColor),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: Text('Cancel',
-                    style: TextStyle(color: context.mutedColor)),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Delete',
-                    style: TextStyle(color: AppColors.danger)),
-              ),
-            ],
-          ),
-        );
-        return confirmed ?? false;
-      },
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        decoration: BoxDecoration(
-          color: AppColors.danger.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Icon(Icons.delete_outline_rounded,
-            color: AppColors.danger, size: 22),
-      ),
-      onDismissed: (_) => onDelete(),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        decoration: BoxDecoration(
-          color: context.cardColor,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: context.isDark
-              ? null
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
+        final cat = CategoryService.instance.getById(widget.expense.categoryId);
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: cat.color.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
+            boxShadow: context.isDark
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
                     ),
-                    child: Icon(cat.icon, size: 18, color: cat.color),
+                  ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Row(
+                    children: [
+                      const Expanded(child: SizedBox()),
+                      GestureDetector(
+                        onTap: _handleDelete,
+                        child: Container(
+                          width: _revealWidth,
+                          color: AppColors.danger,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.delete_outline_rounded,
+                              color: Colors.white, size: 22),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          expense.title,
-                          style: TextStyle(
-                            color: context.textColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
+                ),
+                AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, child) => Transform.translate(
+                    offset: Offset(-_revealWidth * _controller.value, 0),
+                    child: child,
+                  ),
+                  child: GestureDetector(
+                    onHorizontalDragUpdate: _handleDragUpdate,
+                    onHorizontalDragEnd: _handleDragEnd,
+                    child: Material(
+                      color: context.cardColor,
+                      child: InkWell(
+                        onTap: _handleTap,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: cat.color.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(cat.icon, size: 18, color: cat.color),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      widget.expense.title,
+                                      style: TextStyle(
+                                        color: context.textColor,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      '${cat.label} • ${DateFormat('MMM d, yyyy').format(widget.expense.date)}',
+                                      style: TextStyle(
+                                          color: context.mutedColor, fontSize: 12),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                formatCurrency(widget.expense.amount, decimals: true),
+                                style: TextStyle(
+                                  color: context.textColor,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${cat.label} • ${DateFormat('MMM d, yyyy').format(expense.date)}',
-                          style: TextStyle(
-                              color: context.mutedColor, fontSize: 12),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    formatCurrency(expense.amount, decimals: true),
-                    style: TextStyle(
-                      color: context.textColor,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ),
-      ),
         );
       },
     );

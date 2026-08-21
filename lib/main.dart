@@ -6,6 +6,14 @@ import 'models/task.dart';
 import 'services/task_service.dart';
 import 'screens/root_shell.dart';
 
+/// A single, persistent ScaffoldMessenger used for snackbars that need to
+/// survive a route push (e.g. deleting an expense right before navigating
+/// to another expense screen). `ScaffoldMessenger.of(context)` resolves to
+/// whichever Scaffold happens to be topmost, which is unreliable mid-
+/// navigation; routing every expense snackbar through this fixed key avoids
+/// that.
+final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
@@ -123,6 +131,7 @@ class TaskFlowApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'TaskFlow',
+      scaffoldMessengerKey: scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       themeMode: notifier.mode,
       theme: _lightTheme(),

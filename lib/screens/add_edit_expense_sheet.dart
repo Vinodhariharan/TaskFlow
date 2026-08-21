@@ -24,6 +24,11 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
   late final TextEditingController _titleController;
   late final TextEditingController _amountController;
   late final TextEditingController _noteController;
+  // Hoisted rather than created inline in build: RawAutocomplete rebinds its
+  // internal TextField whenever the FocusNode identity changes, and a fresh
+  // `FocusNode()` on every keystroke's rebuild was resetting focus/selection
+  // mid-edit, which showed up as backspace seeming to do nothing.
+  final _titleFocusNode = FocusNode();
   late String _categoryId;
   late DateTime _date;
   bool _saving = false;
@@ -57,6 +62,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
     _titleController.dispose();
     _amountController.dispose();
     _noteController.dispose();
+    _titleFocusNode.dispose();
     super.dispose();
   }
 
@@ -178,7 +184,7 @@ class _AddEditExpenseSheetState extends State<AddEditExpenseSheet> {
             builder: (context, constraints) {
               return RawAutocomplete<String>(
                 textEditingController: _titleController,
-                focusNode: FocusNode(),
+                focusNode: _titleFocusNode,
                 optionsBuilder: (value) {
                   final q = value.text.trim().toLowerCase();
                   if (q.isEmpty) return const Iterable<String>.empty();

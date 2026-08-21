@@ -310,14 +310,8 @@ class _KpiDetailScreenState extends State<KpiDetailScreen> {
                           )),
                       const SizedBox(height: 12),
                       for (final stat in stats) ...[
-                        _CategoryStatRow(
-                          stat: stat,
-                          total: total,
-                          maxAmount: stats
-                              .map((s) => s.amount)
-                              .reduce((a, b) => a > b ? a : b),
-                        ),
-                        const SizedBox(height: 14),
+                        _CategoryStatRow(stat: stat, total: total),
+                        const SizedBox(height: 10),
                       ],
                     ] else
                       _TrendSection(
@@ -581,46 +575,44 @@ class _DonutChartPainter extends CustomPainter {
       oldDelegate.stats != stats || oldDelegate.total != total;
 }
 
+/// Compact per-category row: icon, label, amount, and a percentage/count
+/// caption. Deliberately has no bar of its own — the donut chart above
+/// already shows share-of-total visually, so a second bar per row here
+/// would just repeat the same proportion twice.
 class _CategoryStatRow extends StatelessWidget {
   final CategoryStat stat;
   final double total;
-  final double maxAmount;
 
-  const _CategoryStatRow({
-    required this.stat,
-    required this.total,
-    required this.maxAmount,
-  });
+  const _CategoryStatRow({required this.stat, required this.total});
 
   @override
   Widget build(BuildContext context) {
     final cat = CategoryService.instance.getById(stat.categoryId);
     final pct = total == 0 ? 0.0 : stat.amount / total;
-    final barFraction = maxAmount == 0 ? 0.0 : stat.amount / maxAmount;
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: context.cardColor,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: cat.color.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(cat.icon, size: 16, color: cat.color),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: cat.color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(cat.icon, size: 16, color: cat.color),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
                   cat.label,
                   style: TextStyle(
                     color: context.textColor,
@@ -628,31 +620,20 @@ class _CategoryStatRow extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              Text(
-                formatCurrency(stat.amount, decimals: true),
-                style: TextStyle(
-                  color: context.textColor,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+                Text(
+                  '${(pct * 100).toStringAsFixed(0)}% · ${stat.count} expense${stat.count == 1 ? '' : 's'}',
+                  style: TextStyle(color: context.mutedColor, fontSize: 12),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: barFraction,
-              minHeight: 6,
-              backgroundColor: context.subtleColor,
-              valueColor: AlwaysStoppedAnimation<Color>(cat.color),
+              ],
             ),
           ),
-          const SizedBox(height: 6),
           Text(
-            '${(pct * 100).toStringAsFixed(0)}% · ${stat.count} expense${stat.count == 1 ? '' : 's'}',
-            style: TextStyle(color: context.mutedColor, fontSize: 12),
+            formatCurrency(stat.amount, decimals: true),
+            style: TextStyle(
+              color: context.textColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),

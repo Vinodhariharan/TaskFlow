@@ -22,6 +22,9 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   final _expenseService = ExpenseService();
   final _scrollController = ScrollController();
   final _searchController = TextEditingController();
+  // Hoisted — see the matching comment in add_edit_expense_sheet.dart: a
+  // FocusNode created inline in build() breaks mid-edit focus continuity.
+  final _searchFocusNode = FocusNode();
   Timer? _debounce;
 
   final Set<String> _selectedCategoryIds = {};
@@ -60,6 +63,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     _debounce?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
+    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -178,7 +182,11 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     setState(() => _items.removeWhere((e) => e.id == expense.id));
     _loadMonthlyTotals();
     if (mounted) {
-      ScaffoldMessenger.of(context)
+      // Routed through the app-wide scaffoldMessengerKey (not
+      // ScaffoldMessenger.of(context)) so the Undo snackbar reliably shows
+      // up regardless of which expense screen triggered the delete and
+      // which one is on top when it's shown.
+      scaffoldMessengerKey.currentState!
         ..clearSnackBars()
         ..showSnackBar(
           SnackBar(
@@ -253,7 +261,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                 builder: (context, constraints) {
                   return RawAutocomplete<String>(
                     textEditingController: _searchController,
-                    focusNode: FocusNode(),
+                    focusNode: _searchFocusNode,
                     optionsBuilder: (value) {
                       final q = value.text.trim().toLowerCase();
                       if (q.isEmpty) return const Iterable<String>.empty();

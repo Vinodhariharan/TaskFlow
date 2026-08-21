@@ -120,7 +120,10 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
     await _expenseService.deleteExpense(expense.id);
     _refresh();
     if (mounted) {
-      ScaffoldMessenger.of(context)
+      // See the matching comment in all_expenses_screen.dart — the app-wide
+      // scaffoldMessengerKey keeps this snackbar showing consistently across
+      // both expense screens instead of depending on ScaffoldMessenger.of().
+      scaffoldMessengerKey.currentState!
         ..clearSnackBars()
         ..showSnackBar(
         SnackBar(
@@ -183,65 +186,75 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                   ),
                 ),
 
-                // ── KPI grid ─────────────────────────────────────────────
+                // ── KPI section ──────────────────────────────────────────
+                // A single hero card (This month — the number people check
+                // most) plus three compact secondary stats in a row, instead
+                // of four equally-weighted cards in a 2x2 grid. The old grid
+                // gave every stat the same visual priority and repeated
+                // "amount + label" four times with nothing to anchor on.
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                    child: GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 12,
-                      crossAxisSpacing: 12,
-                      childAspectRatio: 1.5,
+                    child: Builder(builder: (context) {
+                      final now = DateTime.now();
+                      return HeroKpiCard(
+                        label: DateFormat('MMMM yyyy').format(now),
+                        value: kpis?.thisMonth ?? 0,
+                        icon: Icons.today_rounded,
+                        onTap: () => _openKpiDetail(
+                            'This Month',
+                            DateFormat('MMMM yyyy').format(now),
+                            DateTime(now.year, now.month, 1),
+                            now),
+                      );
+                    }),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                    child: Row(
                       children: [
-                        Builder(builder: (context) {
-                          final now = DateTime.now();
-                          return KpiCard(
-                            label: 'This year',
-                            value: kpis?.yearly ?? 0,
-                            icon: Icons.calendar_month_rounded,
-                            onTap: () => _openKpiDetail('This Year',
-                                '${now.year}', DateTime(now.year, 1, 1), now),
-                          );
-                        }),
-                        Builder(builder: (context) {
-                          final now = DateTime.now();
-                          final start =
-                              now.subtract(const Duration(days: 29));
-                          return KpiCard(
-                            label: 'Last 30 days',
-                            value: kpis?.last30Days ?? 0,
-                            icon: Icons.date_range_rounded,
-                            onTap: () => _openKpiDetail(
-                                'Last 30 Days', 'Rolling window', start, now),
-                          );
-                        }),
-                        Builder(builder: (context) {
-                          final now = DateTime.now();
-                          final start =
-                              DateTime(now.year, now.month - 11, 1);
-                          return KpiCard(
-                            label: 'Monthly avg (12mo)',
-                            value: kpis?.monthlyAverage ?? 0,
-                            icon: Icons.bar_chart_rounded,
-                            onTap: () => _openKpiDetail('Monthly Average',
-                                'Trailing 12 months', start, now),
-                          );
-                        }),
-                        Builder(builder: (context) {
-                          final now = DateTime.now();
-                          return KpiCard(
-                            label: 'This month',
-                            value: kpis?.thisMonth ?? 0,
-                            icon: Icons.today_rounded,
-                            onTap: () => _openKpiDetail(
-                                'This Month',
-                                DateFormat('MMMM yyyy').format(now),
-                                DateTime(now.year, now.month, 1),
-                                now),
-                          );
-                        }),
+                        Expanded(
+                          child: Builder(builder: (context) {
+                            final now = DateTime.now();
+                            return KpiCard(
+                              label: 'This year',
+                              value: kpis?.yearly ?? 0,
+                              icon: Icons.calendar_month_rounded,
+                              onTap: () => _openKpiDetail('This Year',
+                                  '${now.year}', DateTime(now.year, 1, 1), now),
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Builder(builder: (context) {
+                            final now = DateTime.now();
+                            final start = now.subtract(const Duration(days: 29));
+                            return KpiCard(
+                              label: 'Last 30 days',
+                              value: kpis?.last30Days ?? 0,
+                              icon: Icons.date_range_rounded,
+                              onTap: () => _openKpiDetail(
+                                  'Last 30 Days', 'Rolling window', start, now),
+                            );
+                          }),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Builder(builder: (context) {
+                            final now = DateTime.now();
+                            final start = DateTime(now.year, now.month - 11, 1);
+                            return KpiCard(
+                              label: 'Monthly avg',
+                              value: kpis?.monthlyAverage ?? 0,
+                              icon: Icons.bar_chart_rounded,
+                              onTap: () => _openKpiDetail('Monthly Average',
+                                  'Trailing 12 months', start, now),
+                            );
+                          }),
+                        ),
                       ],
                     ),
                   ),
@@ -367,46 +380,12 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                   Positioned(
                     left: 0,
                     right: 0,
-                    bottom: 24,
+                    bottom: 20,
                     child: IgnorePointer(
                       child: Center(
                         child: Opacity(
-                          opacity: _pullProgress,
-                          child: Transform.scale(
-                            scale: 0.85 + (0.15 * _pullProgress),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: kExpenseAccent,
-                                borderRadius: BorderRadius.circular(24),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black
-                                        .withValues(alpha: 0.2),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.keyboard_arrow_up_rounded,
-                                      color: Colors.white, size: 18),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Keep scrolling for all expenses',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+                          opacity: (_pullProgress * 2).clamp(0.0, 1.0),
+                          child: _PullToNavigateIndicator(progress: _pullProgress),
                         ),
                       ),
                     ),
@@ -416,6 +395,55 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
           },
         );
       },
+    );
+  }
+}
+
+/// Bottom-anchored progress ring that fills as the user scrolls past the
+/// end of the recent list, mirroring a pull-to-refresh spinner (as seen in
+/// Google Search or Threads) but upside down: anchored at the bottom
+/// instead of the top, filling as you scroll further instead of pulling
+/// down, and pointing up (toward where All Expenses will open) instead of
+/// down. Switches to an indeterminate spin right as the threshold is
+/// crossed, the same way a refresh spinner does the instant it commits.
+class _PullToNavigateIndicator extends StatelessWidget {
+  final double progress;
+  const _PullToNavigateIndicator({required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    final triggered = progress >= 1.0;
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(
+        color: context.cardColor,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 26,
+            height: 26,
+            child: CircularProgressIndicator(
+              value: triggered ? null : progress,
+              strokeWidth: 2.5,
+              backgroundColor: context.subtleColor,
+              valueColor: const AlwaysStoppedAnimation<Color>(kExpenseAccent),
+            ),
+          ),
+          const Icon(Icons.keyboard_arrow_up_rounded,
+              size: 16, color: kExpenseAccent),
+        ],
+      ),
     );
   }
 }
