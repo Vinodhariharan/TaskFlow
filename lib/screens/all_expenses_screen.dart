@@ -37,6 +37,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   bool _initialLoad = true;
   Map<DateTime, double> _monthlyTotals = {};
   List<String> _titleSuggestions = [];
+  int _loadGeneration = 0;
 
   static DateTime _monthKey(Expense e) =>
       DateTime(e.date.year, e.date.month, 1);
@@ -86,6 +87,10 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
       _page = 0;
       _hasMore = true;
       _initialLoad = true;
+      // Bumped so the list crossfades to its new content once loaded,
+      // instead of the results just snapping to whatever the new
+      // search/filter turned up.
+      _loadGeneration++;
     });
     _loadMore();
     _loadMonthlyTotals();
@@ -407,34 +412,40 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
             ),
             const SizedBox(height: 12),
 
-            // List
+            // List — crossfades between result sets when search/filters
+            // change (simple fade, matching the plainer animation used
+            // elsewhere for a task disappearing), rather than snapping.
             Expanded(
               child: _initialLoad
                   ? const Center(child: CircularProgressIndicator())
-                  : _items.isEmpty
-                      ? EmptyExpenseState(
-                          title: _filtersActive
-                              ? 'No expenses match your filters'
-                              : 'No expenses yet',
-                          subtitle: _filtersActive
-                              ? 'Try a different search or clear filters'
-                              : 'Add your first expense',
-                          actionLabel: _filtersActive ? 'Clear filters' : null,
-                          onAction: _filtersActive
-                              ? () {
-                                  setState(() {
-                                    _selectedCategoryIds.clear();
-                                    _dateRange = null;
-                                    _searchController.clear();
-                                  });
-                                  _resetAndReload();
-                                }
-                              : null,
-                        )
-                      : ListView.builder(
-                          controller: _scrollController,
-                          physics: const BouncingScrollPhysics(),
-                          itemCount: _items.length + (_hasMore ? 1 : 0),
+                  : AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child: _items.isEmpty
+                          ? EmptyExpenseState(
+                              key: const ValueKey('empty'),
+                              title: _filtersActive
+                                  ? 'No expenses match your filters'
+                                  : 'No expenses yet',
+                              subtitle: _filtersActive
+                                  ? 'Try a different search or clear filters'
+                                  : 'Add your first expense',
+                              actionLabel: _filtersActive ? 'Clear filters' : null,
+                              onAction: _filtersActive
+                                  ? () {
+                                      setState(() {
+                                        _selectedCategoryIds.clear();
+                                        _dateRange = null;
+                                        _searchController.clear();
+                                      });
+                                      _resetAndReload();
+                                    }
+                                  : null,
+                            )
+                          : ListView.builder(
+                              key: ValueKey(_loadGeneration),
+                              controller: _scrollController,
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: _items.length + (_hasMore ? 1 : 0),
                           itemBuilder: (ctx, i) {
                             if (i >= _items.length) {
                               return const Padding(
@@ -467,6 +478,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                             );
                           },
                         ),
+                    ),
             ),
           ],
         ),

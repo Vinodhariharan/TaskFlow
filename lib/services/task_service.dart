@@ -60,7 +60,10 @@ class TaskService {
       });
   }
 
-  /// Future scheduled tasks grouped by date (sorted ascending).
+  /// Future scheduled tasks grouped by date (sorted ascending). Includes
+  /// completed ones too (sorted after pending within each date) — excluding
+  /// them here meant completing a future-scheduled task made it vanish
+  /// entirely, since it also never appears in getTodayTasks().
   Future<Map<DateTime, List<Task>>> getScheduledTasks() async {
     final all = await _loadAll();
     final today = _dateOnly(DateTime.now());
@@ -68,7 +71,7 @@ class TaskService {
     final future = all.where((t) {
       if (t.scheduledDate == null) return false;
       final sd = _dateOnly(t.scheduledDate!);
-      return sd.isAfter(today) && !t.isCompleted;
+      return sd.isAfter(today);
     }).toList();
 
     // Group by date
@@ -78,10 +81,12 @@ class TaskService {
       grouped.putIfAbsent(key, () => []).add(task);
     }
 
-    // Sort tasks within each group
+    // Sort tasks within each group: pending first, completed pushed down.
     for (final list in grouped.values) {
-      list.sort((a, b) =>
-          b.priority.index.compareTo(a.priority.index));
+      list.sort((a, b) {
+        if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
+        return b.priority.index.compareTo(a.priority.index);
+      });
     }
 
     // Return sorted by date

@@ -222,8 +222,12 @@ class _KpiDetailScreenState extends State<KpiDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // A fixed "Stats" title rather than repeating whichever
+                      // KPI card was tapped (which just showed the same name
+                      // twice) — the specific KPI and its range move to the
+                      // subtitle below.
                       Text(
-                        widget.title,
+                        'Stats',
                         style: TextStyle(
                           color: context.textColor,
                           fontSize: 22,
@@ -231,7 +235,7 @@ class _KpiDetailScreenState extends State<KpiDetailScreen> {
                         ),
                       ),
                       Text(
-                        _rangeLabel,
+                        '${widget.title} • $_rangeLabel',
                         style: TextStyle(color: context.mutedColor, fontSize: 12),
                       ),
                     ],

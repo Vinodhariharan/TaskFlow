@@ -45,6 +45,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await _settingsService.setDefaultTab(index);
   }
 
+  Future<void> _showCurrencyPicker(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _CurrencyPickerSheet(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = context.isDark;
@@ -99,13 +108,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 20),
 
-            _SectionLabel('STARTUP'),
+            _SectionLabel('PRIMARY SECTION'),
             _SettingsCard(
               children: [
                 _SettingsRow(
                   icon: Icons.check_box_outlined,
                   title: 'Tasks',
-                  subtitle: 'Open on the Tasks tab at launch',
+                  subtitle: 'Opens at launch and sits on the left of the toggle',
                   trailing: _defaultTab == 0
                       ? const Icon(Icons.check_rounded,
                           color: AppColors.primary, size: 20)
@@ -116,7 +125,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _SettingsRow(
                   icon: Icons.receipt_long_rounded,
                   title: 'Expenses',
-                  subtitle: 'Open on the Expenses tab at launch',
+                  subtitle: 'Opens at launch and sits on the left of the toggle',
                   trailing: _defaultTab == 1
                       ? const Icon(Icons.check_rounded,
                           color: AppColors.primary, size: 20)
@@ -130,28 +139,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SectionLabel('CURRENCY'),
             _SettingsCard(
               children: [
-                for (int i = 0; i < kCurrencyOptions.length; i++) ...[
-                  if (i > 0) _Divider(),
-                  ListenableBuilder(
-                    listenable: CurrencySettings.instance,
-                    builder: (context, _) {
-                      final option = kCurrencyOptions[i];
-                      final selected =
-                          CurrencySettings.instance.current.code ==
-                              option.code;
-                      return _SettingsRow(
-                        icon: Icons.currency_exchange_rounded,
-                        title: option.label,
-                        trailing: selected
-                            ? const Icon(Icons.check_rounded,
-                                color: kExpenseAccent, size: 20)
-                            : null,
-                        onTap: () =>
-                            CurrencySettings.instance.setCurrency(option),
-                      );
-                    },
+                ListenableBuilder(
+                  listenable: CurrencySettings.instance,
+                  builder: (context, _) => _SettingsRow(
+                    icon: Icons.currency_exchange_rounded,
+                    title: 'Currency',
+                    subtitle: CurrencySettings.instance.current.label,
+                    trailing: Icon(Icons.chevron_right_rounded,
+                        color: context.mutedColor, size: 20),
+                    onTap: () => _showCurrencyPicker(context),
                   ),
-                ],
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -334,6 +332,145 @@ class _SettingsRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Search-to-filter currency picker, opened as a bottom sheet from the
+/// Currency settings row instead of a flat scrollable list of every option.
+class _CurrencyPickerSheet extends StatefulWidget {
+  const _CurrencyPickerSheet();
+
+  @override
+  State<_CurrencyPickerSheet> createState() => _CurrencyPickerSheetState();
+}
+
+class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final q = _query.trim().toLowerCase();
+    final results = q.isEmpty
+        ? kCurrencyOptions
+        : kCurrencyOptions
+            .where((c) =>
+                c.label.toLowerCase().contains(q) || c.code.toLowerCase().contains(q))
+            .toList();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      decoration: BoxDecoration(
+        color: context.sheetBg,
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: context.handleColor,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Currency',
+            style: TextStyle(
+              color: context.textColor,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _searchController,
+            autofocus: true,
+            onChanged: (v) => setState(() => _query = v),
+            style: TextStyle(color: context.textColor, fontSize: 15),
+            decoration: InputDecoration(
+              hintText: 'Search currencies',
+              hintStyle: TextStyle(color: context.mutedColor, fontSize: 15),
+              prefixIcon: Icon(Icons.search_rounded, size: 20, color: context.mutedColor),
+              filled: true,
+              fillColor: context.inputBg,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Flexible(
+            child: results.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('No matching currency',
+                          style: TextStyle(color: context.mutedColor, fontSize: 13)),
+                    ),
+                  )
+                : ListenableBuilder(
+                    listenable: CurrencySettings.instance,
+                    builder: (context, _) => ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: results.length,
+                      itemBuilder: (context, i) {
+                        final option = results[i];
+                        final selected =
+                            CurrencySettings.instance.current.code == option.code;
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              CurrencySettings.instance.setCurrency(option);
+                              Navigator.of(context).pop();
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 4),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      option.label,
+                                      style: TextStyle(
+                                        color: context.textColor,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ),
+                                  if (selected)
+                                    const Icon(Icons.check_rounded,
+                                        color: kExpenseAccent, size: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }

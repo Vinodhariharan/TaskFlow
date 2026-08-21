@@ -8,7 +8,8 @@ import 'expenses_home_tab.dart';
 import 'settings_screen.dart';
 
 /// Top-level shell that switches between the unmodified TaskFlow task list
-/// and the new Expenses tab via a segmented pill at the top of the screen.
+/// and the new Expenses tab via a segmented pill at the top of the screen,
+/// or by swiping left/right on the content itself.
 class RootShell extends StatefulWidget {
   final ThemeNotifier notifier;
   const RootShell({super.key, required this.notifier});
@@ -18,21 +19,50 @@ class RootShell extends StatefulWidget {
 }
 
 class _RootShellState extends State<RootShell> {
-  int _index = 0;
+  // Which screen (0 = Tasks, 1 = Expenses) is "primary" — shown on the left
+  // of the toggle, and the one the app opens on. Backed by the same
+  // Settings > "default start tab" choice; default is Tasks.
+  int _primary = 0;
+  // Current PageView page (0 or 1) — a position, not a screen identity: the
+  // screen it maps to depends on _primary via _screenOrder.
+  int _page = 0;
+  late final PageController _pageController;
   final _settingsService = SettingsService();
+
+  /// Screen identities (0 = Tasks, 1 = Expenses) in left-to-right / page
+  /// order — index 0 is whichever is primary.
+  List<int> get _screenOrder => _primary == 0 ? const [0, 1] : const [1, 0];
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController();
     CurrencySettings.instance.load();
     CategoryService.instance.load();
     _settingsService.getDefaultTab().then((tab) {
-      if (mounted && tab != _index) setState(() => _index = tab);
+      if (mounted && tab != _primary) setState(() => _primary = tab);
     });
   }
 
   @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _goToPage(int pageIndex) {
+    if (pageIndex == _page) return;
+    HapticFeedback.selectionClick();
+    _pageController.animateToPage(
+      pageIndex,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final order = _screenOrder;
     return Scaffold(
       backgroundColor: context.bgColor,
       body: SafeArea(
@@ -45,12 +75,9 @@ class _RootShellState extends State<RootShell> {
                 children: [
                   Expanded(
                     child: _TopTabBar(
-                      index: _index,
-                      onChanged: (i) {
-                        if (i == _index) return;
-                        HapticFeedback.selectionClick();
-                        setState(() => _index = i);
-                      },
+                      order: order,
+                      current: _page,
+                      onChanged: _goToPage,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -79,11 +106,15 @@ class _RootShellState extends State<RootShell> {
               ),
             ),
             Expanded(
-              child: IndexedStack(
-                index: _index,
+              child: PageView(
+                controller: _pageController,
+                physics: const BouncingScrollPhysics(),
+                onPageChanged: (i) => setState(() => _page = i),
                 children: [
-                  HomeScreen(notifier: widget.notifier),
-                  const ExpensesHomeTab(),
+                  for (final screenId in order)
+                    screenId == 0
+                        ? HomeScreen(notifier: widget.notifier)
+                        : const ExpensesHomeTab(),
                 ],
               ),
             ),
@@ -95,9 +126,12 @@ class _RootShellState extends State<RootShell> {
 }
 
 class _TopTabBar extends StatelessWidget {
-  final int index;
+  /// Screen identities (0 = Tasks, 1 = Expenses) in left-to-right order.
+  final List<int> order;
+  final int current;
   final ValueChanged<int> onChanged;
-  const _TopTabBar({required this.index, required this.onChanged});
+  const _TopTabBar(
+      {required this.order, required this.current, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -109,17 +143,23 @@ class _TopTabBar extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(child: _segment(context, 'Tasks', 0)),
-          Expanded(child: _segment(context, 'Expenses', 1)),
+          for (var pageIndex = 0; pageIndex < order.length; pageIndex++)
+            Expanded(
+              child: _segment(
+                context,
+                order[pageIndex] == 0 ? 'Tasks' : 'Expenses',
+                pageIndex,
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _segment(BuildContext context, String label, int i) {
-    final selected = index == i;
+  Widget _segment(BuildContext context, String label, int pageIndex) {
+    final selected = current == pageIndex;
     return GestureDetector(
-      onTap: () => onChanged(i),
+      onTap: () => onChanged(pageIndex),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 10),

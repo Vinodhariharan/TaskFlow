@@ -72,15 +72,19 @@ class KpiCard extends StatelessWidget {
         children: [
           Icon(icon, size: 18, color: kExpenseAccent),
           const SizedBox(height: 12),
-          Text(
-            formatCurrency(value),
-            style: TextStyle(
-              color: context.textColor,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            child: Text(
+              formatCurrency(value),
+              key: ValueKey(value),
+              style: TextStyle(
+                color: context.textColor,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 2),
           Text(
@@ -155,14 +159,18 @@ class HeroKpiCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        formatCurrency(value, decimals: true),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: Text(
+                          formatCurrency(value, decimals: true),
+                          key: ValueKey(value),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
                     ],
