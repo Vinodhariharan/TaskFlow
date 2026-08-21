@@ -7,6 +7,7 @@ import 'category_management_screen.dart';
 import 'expense_widgets.dart';
 import 'export_expenses_screen.dart';
 import 'import_expenses_screen.dart';
+import 'task_category_management_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ThemeNotifier notifier;
@@ -159,13 +160,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _SettingsRow(
                   icon: Icons.sell_rounded,
-                  title: 'Manage categories',
+                  title: 'Manage expense categories',
                   subtitle: 'Edit built-in tags, add or delete custom ones',
                   trailing: Icon(Icons.chevron_right_rounded,
                       color: context.mutedColor, size: 20),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const CategoryManagementScreen(),
+                    ),
+                  ),
+                ),
+                _Divider(),
+                _SettingsRow(
+                  icon: Icons.label_outline_rounded,
+                  title: 'Manage task categories',
+                  subtitle: 'Edit built-in categories, add or delete custom ones',
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: context.mutedColor, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const TaskCategoryManagementScreen(),
                     ),
                   ),
                 ),

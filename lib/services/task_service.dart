@@ -32,11 +32,16 @@ class TaskService {
   /// - Incomplete general tasks from previous days (carried over)
   /// - Scheduled tasks for today
   /// - Overdue scheduled tasks (past date, incomplete) — carried over with color
-  Future<List<Task>> getTodayTasks() async {
+  Future<List<Task>> getTodayTasks({Set<String>? categoryIds}) async {
     final all = await _loadAll();
     final today = _dateOnly(DateTime.now());
 
     return all.where((t) {
+      if (categoryIds != null &&
+          categoryIds.isNotEmpty &&
+          !categoryIds.contains(t.categoryId)) {
+        return false;
+      }
       if (t.scheduledDate != null) {
         final sd = _dateOnly(t.scheduledDate!);
         // Scheduled for today OR overdue (past + incomplete)
@@ -64,11 +69,16 @@ class TaskService {
   /// completed ones too (sorted after pending within each date) — excluding
   /// them here meant completing a future-scheduled task made it vanish
   /// entirely, since it also never appears in getTodayTasks().
-  Future<Map<DateTime, List<Task>>> getScheduledTasks() async {
+  Future<Map<DateTime, List<Task>>> getScheduledTasks({Set<String>? categoryIds}) async {
     final all = await _loadAll();
     final today = _dateOnly(DateTime.now());
 
     final future = all.where((t) {
+      if (categoryIds != null &&
+          categoryIds.isNotEmpty &&
+          !categoryIds.contains(t.categoryId)) {
+        return false;
+      }
       if (t.scheduledDate == null) return false;
       final sd = _dateOnly(t.scheduledDate!);
       return sd.isAfter(today);
@@ -112,6 +122,7 @@ class TaskService {
     String? note,
     TaskPriority priority = TaskPriority.normal,
     DateTime? scheduledDate,
+    String? categoryId,
   }) async {
     final tasks = await _loadAll();
     final task = Task(
@@ -121,10 +132,32 @@ class TaskService {
       note: note,
       priority: priority,
       scheduledDate: scheduledDate,
+      categoryId: categoryId,
     );
     tasks.add(task);
     await _saveAll(tasks);
     return task;
+  }
+
+  /// How many tasks currently use [categoryId] — used before deleting a
+  /// category, to decide whether a reassignment prompt is needed.
+  Future<int> countByCategory(String categoryId) async {
+    final all = await _loadAll();
+    return all.where((t) => t.categoryId == categoryId).length;
+  }
+
+  /// Moves every task tagged [fromId] to [toId] in one load+save cycle —
+  /// used when a category is deleted and its tasks need a new home.
+  Future<void> reassignCategory({required String fromId, required String toId}) async {
+    final all = await _loadAll();
+    var changed = false;
+    for (final t in all) {
+      if (t.categoryId == fromId) {
+        t.categoryId = toId;
+        changed = true;
+      }
+    }
+    if (changed) await _saveAll(all);
   }
 
   Future<void> toggleComplete(String id) async {

@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/expense.dart';
+import 'expense_change_notifier.dart';
 
 class RecentExpensesResult {
   final List<Expense> items;
@@ -124,6 +125,7 @@ class ExpenseService {
     );
     all.add(expense);
     await _saveAll(all);
+    ExpenseChangeNotifier.instance.notifyChanged();
     return expense;
   }
 
@@ -133,12 +135,14 @@ class ExpenseService {
     if (idx == -1) return;
     all[idx] = updated;
     await _saveAll(all);
+    ExpenseChangeNotifier.instance.notifyChanged();
   }
 
   Future<void> deleteExpense(String id) async {
     final all = await _loadAll();
     all.removeWhere((e) => e.id == id);
     await _saveAll(all);
+    ExpenseChangeNotifier.instance.notifyChanged();
   }
 
   /// Bulk-append pre-built expenses (e.g. from a CSV import) in one save,
@@ -148,6 +152,7 @@ class ExpenseService {
     final all = await _loadAll();
     all.addAll(expenses);
     await _saveAll(all);
+    ExpenseChangeNotifier.instance.notifyChanged();
   }
 
   /// How many expenses currently use [categoryId] — used before deleting a
@@ -168,7 +173,10 @@ class ExpenseService {
         changed = true;
       }
     }
-    if (changed) await _saveAll(all);
+    if (changed) {
+      await _saveAll(all);
+      ExpenseChangeNotifier.instance.notifyChanged();
+    }
   }
 
   /// Most recent expenses (newest first), capped at [limit].

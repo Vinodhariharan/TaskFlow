@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
 import '../services/category_service.dart';
+import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'expense_widgets.dart';
@@ -52,6 +53,12 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     super.initState();
     _scrollController.addListener(_onScroll);
     CategoryService.instance.load();
+    // Any add/update/delete/undo/import from ANY expense screen fires this,
+    // so this screen stays in sync even when the change happened elsewhere
+    // (e.g. deleting on the Expenses home tab but hitting Undo from a
+    // snackbar still showing on top of this screen). Uses the soft variant
+    // so it doesn't flash a loading spinner over what's already on screen.
+    ExpenseChangeNotifier.instance.addListener(_softRefresh);
     _loadMore();
     _loadMonthlyTotals();
     _expenseService.getTitleSuggestions().then((titles) {
@@ -65,6 +72,7 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     _scrollController.dispose();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    ExpenseChangeNotifier.instance.removeListener(_softRefresh);
     super.dispose();
   }
 
@@ -93,6 +101,27 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
       _loadGeneration++;
     });
     _loadMore();
+    _loadMonthlyTotals();
+  }
+
+  /// Re-fetches whatever's currently loaded and swaps it in directly,
+  /// without the full-reset spinner flash _resetAndReload shows — used for
+  /// cross-screen sync (ExpenseChangeNotifier) so a change made on another
+  /// expense screen doesn't visibly interrupt this one, only updates it.
+  Future<void> _softRefresh() async {
+    final result = await _expenseService.queryExpenses(
+      page: 0,
+      pageSize: 20 * _page.clamp(1, 1 << 20),
+      categoryIds: _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds,
+      startDate: _dateRange?.start,
+      endDate: _dateRange?.end,
+      searchQuery: _searchController.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      _items = result.items;
+      _hasMore = result.hasMore;
+    });
     _loadMonthlyTotals();
   }
 
@@ -156,6 +185,8 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   }
 
   Future<void> _showEditExpense(Expense expense) async {
+    // No explicit reload needed after this — add/update notifies
+    // ExpenseChangeNotifier internally, which this screen listens to.
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -163,7 +194,6 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
       builder: (_) => AddEditExpenseSheet(
           expenseService: _expenseService, editExpense: expense),
     );
-    _resetAndReload();
   }
 
   Future<void> _showViewExpense(Expense expense) async {
@@ -184,7 +214,10 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   Future<void> _deleteExpense(Expense expense) async {
     HapticFeedback.mediumImpact();
     await _expenseService.deleteExpense(expense.id);
-    setState(() => _items.removeWhere((e) => e.id == expense.id));
+    // Removed locally right away for instant feedback rather than waiting
+    // on the ExpenseChangeNotifier round-trip (which still fires, for other
+    // screens, and will silently confirm the same result here).
+    if (mounted) setState(() => _items.removeWhere((e) => e.id == expense.id));
     _loadMonthlyTotals();
     if (mounted) {
       // Routed through the app-wide scaffoldMessengerKey (not
@@ -213,7 +246,6 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                   date: expense.date,
                   note: expense.note,
                 );
-                _resetAndReload();
               },
             ),
           ),

@@ -9,6 +9,7 @@ class Task {
   String? note;
   TaskPriority priority;
   DateTime? scheduledDate; // null = general/today task
+  String? categoryId; // null = uncategorized
 
   Task({
     required this.id,
@@ -19,6 +20,7 @@ class Task {
     this.note,
     this.priority = TaskPriority.normal,
     this.scheduledDate,
+    this.categoryId,
   });
 
   /// Returns true if this is a general task (no scheduled date)
@@ -69,6 +71,8 @@ class Task {
     TaskPriority? priority,
     DateTime? scheduledDate,
     bool clearScheduledDate = false,
+    String? categoryId,
+    bool clearCategoryId = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -80,6 +84,7 @@ class Task {
       priority: priority ?? this.priority,
       scheduledDate:
           clearScheduledDate ? null : (scheduledDate ?? this.scheduledDate),
+      categoryId: clearCategoryId ? null : (categoryId ?? this.categoryId),
     );
   }
 
@@ -93,6 +98,7 @@ class Task {
       'note': note,
       'priority': priority.index,
       'scheduledDate': scheduledDate?.toIso8601String(),
+      'categoryId': categoryId,
     };
   }
 
@@ -110,6 +116,7 @@ class Task {
       scheduledDate: json['scheduledDate'] != null
           ? DateTime.parse(json['scheduledDate'] as String)
           : null,
+      categoryId: json['categoryId'] as String?,
     );
   }
 

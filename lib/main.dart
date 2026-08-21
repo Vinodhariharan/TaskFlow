@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
+import 'services/task_category_service.dart';
 import 'services/task_service.dart';
 import 'screens/root_shell.dart';
+import 'screens/task_category_widgets.dart';
 
 /// A single, persistent ScaffoldMessenger used for snackbars that need to
 /// survive a route push (e.g. deleting an expense right before navigating
@@ -180,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen>
   late Future<List<Task>> _todayFuture;
   late Future<Map<DateTime, List<Task>>> _scheduledFuture;
   late AnimationController _fabController;
+  final Set<String> _selectedCategoryIds = {};
 
   @override
   void initState() {
@@ -188,6 +191,7 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 200),
     );
+    TaskCategoryService.instance.load();
     _refresh();
   }
 
@@ -198,10 +202,22 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _refresh() {
+    final categoryIds = _selectedCategoryIds.isEmpty ? null : _selectedCategoryIds;
     setState(() {
-      _todayFuture = _taskService.getTodayTasks();
-      _scheduledFuture = _taskService.getScheduledTasks();
+      _todayFuture = _taskService.getTodayTasks(categoryIds: categoryIds);
+      _scheduledFuture = _taskService.getScheduledTasks(categoryIds: categoryIds);
     });
+  }
+
+  void _toggleCategoryFilter(String id) {
+    setState(() {
+      if (_selectedCategoryIds.contains(id)) {
+        _selectedCategoryIds.remove(id);
+      } else {
+        _selectedCategoryIds.add(id);
+      }
+    });
+    _refresh();
   }
 
   Future<void> _showAddTask({Task? editTask}) async {
@@ -369,10 +385,43 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                     ),
 
+                    // ── Category filter chips ─────────────────────────────
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 36,
+                        child: ListenableBuilder(
+                          listenable: TaskCategoryService.instance,
+                          builder: (context, _) => ListView(
+                            scrollDirection: Axis.horizontal,
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            children: [
+                              for (final cat in TaskCategoryService.instance.all) ...[
+                                TaskCategoryChip(
+                                  category: cat,
+                                  selected: _selectedCategoryIds.contains(cat.id),
+                                  onTap: () => _toggleCategoryFilter(cat.id),
+                                ),
+                                const SizedBox(width: 8),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SliverToBoxAdapter(child: SizedBox(height: 8)),
+
                     // ── Empty State ──────────────────────────────────────
                     if (isEmpty)
                       SliverFillRemaining(
-                        child: _EmptyState(onAdd: _showAddTask),
+                        child: _EmptyState(
+                          onAdd: _showAddTask,
+                          title: _selectedCategoryIds.isNotEmpty
+                              ? 'No tasks here'
+                              : 'All clear',
+                          subtitle: _selectedCategoryIds.isNotEmpty
+                              ? 'Nothing in this category right now'
+                              : 'Add your first task for today',
+                        ),
                       )
                     else ...[
                       // ── Today Pending ────────────────────────────────
@@ -886,6 +935,32 @@ class _TaskTileState extends State<_TaskTile>
                               ),
                             ],
                           ),
+                          // Category
+                          if (task.categoryId != null) ...[
+                            const SizedBox(height: 3),
+                            ListenableBuilder(
+                              listenable: TaskCategoryService.instance,
+                              builder: (context, _) {
+                                final cat = TaskCategoryService.instance
+                                    .getById(task.categoryId!);
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(cat.icon, size: 11, color: cat.color),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      cat.label,
+                                      style: TextStyle(
+                                        color: cat.color,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
                           // Note
                           if (task.note != null &&
                               task.note!.isNotEmpty) ...[
@@ -1005,7 +1080,13 @@ class _DateChip extends StatelessWidget {
 
 class _EmptyState extends StatelessWidget {
   final VoidCallback onAdd;
-  const _EmptyState({required this.onAdd});
+  final String title;
+  final String subtitle;
+  const _EmptyState({
+    required this.onAdd,
+    this.title = 'All clear',
+    this.subtitle = 'Add your first task for today',
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1024,13 +1105,13 @@ class _EmptyState extends StatelessWidget {
                 size: 32, color: context.subtleColor),
           ),
           const SizedBox(height: 20),
-          Text('All clear',
+          Text(title,
               style: TextStyle(
                   color: context.textColor,
                   fontSize: 20,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          Text('Add your first task for today',
+          Text(subtitle,
               style: TextStyle(color: context.mutedColor, fontSize: 14)),
           const SizedBox(height: 32),
           GestureDetector(
@@ -1075,6 +1156,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   late final TextEditingController _noteController;
   late TaskPriority _priority;
   DateTime? _scheduledDate;
+  String? _categoryId;
   bool _saving = false;
 
   @override
@@ -1085,6 +1167,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     _noteController = TextEditingController(text: t?.note ?? '');
     _priority = t?.priority ?? TaskPriority.normal;
     _scheduledDate = t?.scheduledDate;
+    _categoryId = t?.categoryId;
+    TaskCategoryService.instance.load();
     _titleController.addListener(() => setState(() {}));
   }
 
@@ -1134,6 +1218,8 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
         priority: _priority,
         scheduledDate: _scheduledDate,
         clearScheduledDate: _scheduledDate == null,
+        categoryId: _categoryId,
+        clearCategoryId: _categoryId == null,
       );
       await widget.taskService.updateTask(updated);
     } else {
@@ -1144,6 +1230,7 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
             : _noteController.text.trim(),
         priority: _priority,
         scheduledDate: _scheduledDate,
+        categoryId: _categoryId,
       );
     }
 
@@ -1341,6 +1428,40 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                     setState(() => _priority = TaskPriority.high),
               ),
             ],
+          ),
+          const SizedBox(height: 14),
+
+          // Category (optional — no default, unlike expense categories)
+          Text('Category',
+              style: TextStyle(
+                color: context.mutedColor,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              )),
+          const SizedBox(height: 8),
+          ListenableBuilder(
+            listenable: TaskCategoryService.instance,
+            builder: (context, _) => Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final cat in TaskCategoryService.instance.all)
+                  TaskCategoryChip(
+                    category: cat,
+                    selected: _categoryId == cat.id,
+                    onTap: () => setState(
+                        () => _categoryId = _categoryId == cat.id ? null : cat.id),
+                  ),
+                AddTaskCategoryChip(
+                  onTap: () async {
+                    final created = await showAddTaskCategoryDialog(context);
+                    if (created != null) {
+                      setState(() => _categoryId = created.id);
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 20),
 

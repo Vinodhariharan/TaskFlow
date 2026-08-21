@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/expense.dart';
+import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'all_expenses_screen.dart';
@@ -31,6 +32,11 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    // Any add/update/delete/undo/import from ANY expense screen fires this,
+    // so this tab stays in sync even when the change happened elsewhere
+    // (e.g. deleting here but hitting Undo from a snackbar still showing on
+    // top of All Expenses).
+    ExpenseChangeNotifier.instance.addListener(_refresh);
     _refresh();
   }
 
@@ -38,6 +44,7 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    ExpenseChangeNotifier.instance.removeListener(_refresh);
     super.dispose();
   }
 
@@ -89,6 +96,8 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
   }
 
   Future<void> _showAddExpense({Expense? editExpense}) async {
+    // No explicit refresh needed after this — add/update notifies
+    // ExpenseChangeNotifier internally, which this screen listens to.
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -96,7 +105,6 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
       builder: (_) => AddEditExpenseSheet(
           expenseService: _expenseService, editExpense: editExpense),
     );
-    _refresh();
   }
 
   Future<void> _showViewExpense(Expense expense) async {
@@ -112,13 +120,12 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
         },
       ),
     );
-    _refresh();
   }
 
   Future<void> _deleteExpense(Expense expense) async {
     HapticFeedback.mediumImpact();
+    // No explicit refresh needed — deleteExpense notifies internally.
     await _expenseService.deleteExpense(expense.id);
-    _refresh();
     if (mounted) {
       // See the matching comment in all_expenses_screen.dart — the app-wide
       // scaffoldMessengerKey keeps this snackbar showing consistently across
@@ -144,7 +151,6 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                 date: expense.date,
                 note: expense.note,
               );
-              _refresh();
             },
           ),
         ),
@@ -333,12 +339,11 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                           ),
                           const Spacer(),
                           GestureDetector(
-                            onTap: () async {
-                              await Navigator.of(context).push(
+                            onTap: () {
+                              Navigator.of(context).push(
                                 MaterialPageRoute(
                                     builder: (_) => const AllExpensesScreen()),
                               );
-                              _refresh();
                             },
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
