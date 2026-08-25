@@ -1,6 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/task.dart';
+import '../models/task_recurrence.dart';
+import 'notification_service.dart';
 import 'task_change_notifier.dart';
 
 class TaskService {
@@ -108,6 +110,10 @@ class TaskService {
     return sorted;
   }
 
+  /// Every task, unfiltered — used to re-arm reminder notifications on app
+  /// start (rescheduleAll), not for display.
+  Future<List<Task>> getAllTasks() => _loadAll();
+
   Future<List<Task>> getCompletedTasks() async {
     final all = await _loadAll();
     return all
@@ -124,6 +130,9 @@ class TaskService {
     TaskPriority priority = TaskPriority.normal,
     DateTime? scheduledDate,
     String? categoryId,
+    TaskRecurrence? recurrence,
+    int? reminderHour,
+    int? reminderMinute,
   }) async {
     final tasks = await _loadAll();
     final task = Task(
@@ -134,10 +143,14 @@ class TaskService {
       priority: priority,
       scheduledDate: scheduledDate,
       categoryId: categoryId,
+      recurrence: recurrence,
+      reminderHour: reminderHour,
+      reminderMinute: reminderMinute,
     );
     tasks.add(task);
     await _saveAll(tasks);
     TaskChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.scheduleForTask(task);
     return task;
   }
 
@@ -165,17 +178,35 @@ class TaskService {
     }
   }
 
+  /// Toggles completion. For a recurring task with a scheduled date,
+  /// checking it off doesn't leave it sitting in the completed list — it
+  /// rolls forward to the next occurrence date and un-checks itself, so
+  /// there's one task row per recurring task rather than one per
+  /// occurrence.
   Future<void> toggleComplete(String id) async {
     final tasks = await _loadAll();
     final idx = tasks.indexWhere((t) => t.id == id);
     if (idx == -1) return;
     final t = tasks[idx];
-    tasks[idx] = t.copyWith(
-      isCompleted: !t.isCompleted,
-      completedDate: !t.isCompleted ? DateTime.now() : null,
-    );
+    final completing = !t.isCompleted;
+
+    final Task updated;
+    if (completing && t.recurrence != null && t.scheduledDate != null) {
+      updated = t.copyWith(
+        scheduledDate: nextRecurrenceDate(t.scheduledDate!, t.recurrence!),
+        isCompleted: false,
+        completedDate: DateTime.now(),
+      );
+    } else {
+      updated = t.copyWith(
+        isCompleted: completing,
+        completedDate: completing ? DateTime.now() : null,
+      );
+    }
+    tasks[idx] = updated;
     await _saveAll(tasks);
     TaskChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.scheduleForTask(updated);
   }
 
   Future<void> updateTask(Task updated) async {
@@ -185,6 +216,7 @@ class TaskService {
     tasks[idx] = updated;
     await _saveAll(tasks);
     TaskChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.scheduleForTask(updated);
   }
 
   Future<void> deleteTask(String id) async {
@@ -192,12 +224,17 @@ class TaskService {
     tasks.removeWhere((t) => t.id == id);
     await _saveAll(tasks);
     TaskChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.cancelForTask(id);
   }
 
   Future<void> clearCompleted() async {
     final tasks = await _loadAll();
+    final removed = tasks.where((t) => t.isCompleted).toList();
     tasks.removeWhere((t) => t.isCompleted);
     await _saveAll(tasks);
     TaskChangeNotifier.instance.notifyChanged();
+    for (final t in removed) {
+      await NotificationService.instance.cancelForTask(t.id);
+    }
   }
 }

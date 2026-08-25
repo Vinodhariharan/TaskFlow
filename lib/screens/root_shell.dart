@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import '../main.dart';
 import '../services/category_service.dart';
 import '../services/currency_settings.dart';
+import '../services/notification_service.dart';
 import '../services/settings_service.dart';
+import '../services/task_service.dart';
 import 'expenses_home_tab.dart';
 import 'settings_screen.dart';
 
@@ -41,6 +43,12 @@ class _RootShellState extends State<RootShell> {
     CategoryService.instance.load();
     _settingsService.getDefaultTab().then((tab) {
       if (mounted && tab != _primary) setState(() => _primary = tab);
+    });
+    // Re-arm every upcoming task reminder on app start — covers device
+    // reboots or reinstalls clearing previously scheduled alarms.
+    NotificationService.instance.init().then((_) async {
+      final tasks = await TaskService().getAllTasks();
+      await NotificationService.instance.rescheduleAll(tasks);
     });
   }
 

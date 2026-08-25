@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
+import 'models/task_recurrence.dart';
+import 'services/notification_service.dart';
 import 'services/task_category_service.dart';
 import 'services/task_change_notifier.dart';
 import 'services/task_service.dart';
@@ -1234,6 +1236,11 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   late TaskPriority _priority;
   DateTime? _scheduledDate;
   String? _categoryId;
+  int? _reminderHour;
+  int? _reminderMinute;
+  RecurrenceFrequency? _recurrenceFrequency;
+  Set<int> _recurrenceWeekdays = {};
+  bool _expanded = false;
   bool _saving = false;
 
   @override
@@ -1245,6 +1252,18 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     _priority = t?.priority ?? TaskPriority.normal;
     _scheduledDate = t?.scheduledDate;
     _categoryId = t?.categoryId;
+    _reminderHour = t?.reminderHour;
+    _reminderMinute = t?.reminderMinute;
+    _recurrenceFrequency = t?.recurrence?.frequency;
+    _recurrenceWeekdays = {...(t?.recurrence?.weekdays ?? const <int>{})};
+    // Auto-expand when editing a task that already has one of the
+    // "more options" fields set, so editing doesn't hide existing values
+    // behind a collapsed section.
+    _expanded = t != null &&
+        ((t.note?.isNotEmpty ?? false) ||
+            t.categoryId != null ||
+            t.hasReminder ||
+            t.recurrence != null);
     TaskCategoryService.instance.load();
     _titleController.addListener(() => setState(() {}));
   }
@@ -1280,11 +1299,77 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     if (picked != null) setState(() => _scheduledDate = picked);
   }
 
+  void _clearDate() {
+    setState(() {
+      _scheduledDate = null;
+      // Recurrence needs a scheduled date to advance from.
+      _recurrenceFrequency = null;
+      _recurrenceWeekdays = {};
+    });
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _reminderHour != null
+          ? TimeOfDay(hour: _reminderHour!, minute: _reminderMinute!)
+          : TimeOfDay.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+                  primary: AppColors.primary,
+                  onPrimary: Colors.white,
+                  surface: context.sheetBg,
+                  onSurface: context.textColor,
+                ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked == null) return;
+    setState(() {
+      _reminderHour = picked.hour;
+      _reminderMinute = picked.minute;
+    });
+    await NotificationService.instance.requestPermissions();
+  }
+
+  void _clearReminder() {
+    setState(() {
+      _reminderHour = null;
+      _reminderMinute = null;
+    });
+  }
+
+  void _setFrequency(RecurrenceFrequency? f) {
+    setState(() {
+      _recurrenceFrequency = f;
+      if (f != RecurrenceFrequency.weekly) _recurrenceWeekdays = {};
+    });
+  }
+
+  void _toggleWeekday(int d) {
+    setState(() {
+      if (_recurrenceWeekdays.contains(d)) {
+        _recurrenceWeekdays.remove(d);
+      } else {
+        _recurrenceWeekdays.add(d);
+      }
+    });
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
     setState(() => _saving = true);
     HapticFeedback.lightImpact();
+
+    final recurrence = _recurrenceFrequency == null
+        ? null
+        : TaskRecurrence(
+            frequency: _recurrenceFrequency!, weekdays: _recurrenceWeekdays);
 
     if (widget.editTask != null) {
       final updated = widget.editTask!.copyWith(
@@ -1297,6 +1382,11 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
         clearScheduledDate: _scheduledDate == null,
         categoryId: _categoryId,
         clearCategoryId: _categoryId == null,
+        recurrence: recurrence,
+        clearRecurrence: recurrence == null,
+        reminderHour: _reminderHour,
+        reminderMinute: _reminderMinute,
+        clearReminder: _reminderHour == null,
       );
       await widget.taskService.updateTask(updated);
     } else {
@@ -1308,6 +1398,9 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
         priority: _priority,
         scheduledDate: _scheduledDate,
         categoryId: _categoryId,
+        recurrence: recurrence,
+        reminderHour: _reminderHour,
+        reminderMinute: _reminderMinute,
       );
     }
 
@@ -1320,6 +1413,11 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
     final canSave = _titleController.text.trim().isNotEmpty && !_saving;
     final hasDate = _scheduledDate != null;
+    final hasReminder = _reminderHour != null;
+    final hasMoreSet = _noteController.text.trim().isNotEmpty ||
+        _categoryId != null ||
+        hasReminder ||
+        _recurrenceFrequency != null;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
@@ -1391,29 +1489,9 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
           ),
           const SizedBox(height: 10),
 
-          // Note
-          TextField(
-            controller: _noteController,
-            textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(
-                color: context.secondaryTextColor, fontSize: 14),
-            decoration: InputDecoration(
-              hintText: 'Add a note (optional)',
-              hintStyle: TextStyle(
-                  color: context.subtleColor, fontSize: 14),
-              filled: true,
-              fillColor: context.inputBg,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
-            ),
-          ),
-          const SizedBox(height: 14),
-
-          // Schedule date row
+          // Compact quick-access row: schedule, priority, and a toggle for
+          // everything else (note/category/reminder/repeat) — keeps the
+          // sheet short by default instead of showing every field at once.
           Row(
             children: [
               GestureDetector(
@@ -1463,9 +1541,9 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                 ),
               ),
               if (hasDate) ...[
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 GestureDetector(
-                  onTap: () => setState(() => _scheduledDate = null),
+                  onTap: _clearDate,
                   child: Container(
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
@@ -1477,68 +1555,290 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
                   ),
                 ),
               ],
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // Priority
-          Row(
-            children: [
-              Text('Priority',
-                  style: TextStyle(
-                    color: context.mutedColor,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                  )),
-              const SizedBox(width: 12),
-              _PriorityChip(
-                label: 'Normal',
-                selected: _priority == TaskPriority.normal,
-                onTap: () =>
-                    setState(() => _priority = TaskPriority.normal),
-              ),
               const SizedBox(width: 8),
-              _PriorityChip(
-                label: '● High',
-                selected: _priority == TaskPriority.high,
-                onTap: () =>
-                    setState(() => _priority = TaskPriority.high),
+              // Priority — a single tappable flag instead of two labeled
+              // chips, to keep this row compact.
+              GestureDetector(
+                onTap: () => setState(() => _priority =
+                    _priority == TaskPriority.normal
+                        ? TaskPriority.high
+                        : TaskPriority.normal),
+                child: Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: BoxDecoration(
+                    color: _priority == TaskPriority.high
+                        ? AppColors.primary.withValues(alpha: 0.12)
+                        : context.inputBg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _priority == TaskPriority.high
+                          ? AppColors.primary
+                          : context.subtleColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.flag_rounded,
+                    size: 14,
+                    color: _priority == TaskPriority.high
+                        ? AppColors.primary
+                        : context.mutedColor,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _expanded ? 'Less' : (hasMoreSet ? 'More •' : 'More'),
+                      style: TextStyle(
+                        color: context.mutedColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    AnimatedRotation(
+                      duration: const Duration(milliseconds: 150),
+                      turns: _expanded ? 0.5 : 0,
+                      child: Icon(Icons.keyboard_arrow_down_rounded,
+                          size: 18, color: context.mutedColor),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 14),
 
-          // Category (optional — no default, unlike expense categories)
-          Text('Category',
-              style: TextStyle(
-                color: context.mutedColor,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              )),
-          const SizedBox(height: 8),
-          ListenableBuilder(
-            listenable: TaskCategoryService.instance,
-            builder: (context, _) => Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final cat in TaskCategoryService.instance.all)
-                  TaskCategoryChip(
-                    category: cat,
-                    selected: _categoryId == cat.id,
-                    onTap: () => setState(
-                        () => _categoryId = _categoryId == cat.id ? null : cat.id),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            alignment: Alignment.topCenter,
+            child: !_expanded
+                ? const SizedBox(width: double.infinity)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 14),
+
+                      // Note
+                      TextField(
+                        controller: _noteController,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: TextStyle(
+                            color: context.secondaryTextColor, fontSize: 14),
+                        decoration: InputDecoration(
+                          hintText: 'Add a note (optional)',
+                          hintStyle: TextStyle(
+                              color: context.subtleColor, fontSize: 14),
+                          filled: true,
+                          fillColor: context.inputBg,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Category (optional — no default, unlike expense categories)
+                      Text('Category',
+                          style: TextStyle(
+                            color: context.mutedColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          )),
+                      const SizedBox(height: 8),
+                      ListenableBuilder(
+                        listenable: TaskCategoryService.instance,
+                        builder: (context, _) => Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final cat in TaskCategoryService.instance.all)
+                              TaskCategoryChip(
+                                category: cat,
+                                selected: _categoryId == cat.id,
+                                onTap: () => setState(() => _categoryId =
+                                    _categoryId == cat.id ? null : cat.id),
+                              ),
+                            AddTaskCategoryChip(
+                              onTap: () async {
+                                final created =
+                                    await showAddTaskCategoryDialog(context);
+                                if (created != null) {
+                                  setState(() => _categoryId = created.id);
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Reminder
+                      Text('Reminder',
+                          style: TextStyle(
+                            color: context.mutedColor,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          )),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          GestureDetector(
+                            onTap: _pickReminderTime,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 9),
+                              decoration: BoxDecoration(
+                                color: hasReminder
+                                    ? AppColors.primary.withValues(alpha: 0.12)
+                                    : context.inputBg,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: hasReminder
+                                      ? AppColors.primary
+                                      : context.subtleColor,
+                                  width: 1,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    hasReminder
+                                        ? Icons.notifications_active_rounded
+                                        : Icons.notifications_outlined,
+                                    size: 14,
+                                    color: hasReminder
+                                        ? AppColors.primary
+                                        : context.mutedColor,
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text(
+                                    hasReminder
+                                        ? TimeOfDay(
+                                                hour: _reminderHour!,
+                                                minute: _reminderMinute!)
+                                            .format(context)
+                                        : 'Remind me',
+                                    style: TextStyle(
+                                      color: hasReminder
+                                          ? AppColors.primary
+                                          : context.mutedColor,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (hasReminder) ...[
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: _clearReminder,
+                              child: Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: context.inputBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(Icons.close_rounded,
+                                    size: 14, color: context.mutedColor),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+
+                      // Repeat — only meaningful once a schedule date is set,
+                      // since recurrence advances that date.
+                      if (hasDate) ...[
+                        const SizedBox(height: 14),
+                        Text('Repeat',
+                            style: TextStyle(
+                              color: context.mutedColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            )),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _RepeatChip(
+                              label: 'Off',
+                              selected: _recurrenceFrequency == null,
+                              onTap: () => _setFrequency(null),
+                            ),
+                            _RepeatChip(
+                              label: 'Daily',
+                              selected: _recurrenceFrequency ==
+                                  RecurrenceFrequency.daily,
+                              onTap: () =>
+                                  _setFrequency(RecurrenceFrequency.daily),
+                            ),
+                            _RepeatChip(
+                              label: 'Weekly',
+                              selected: _recurrenceFrequency ==
+                                  RecurrenceFrequency.weekly,
+                              onTap: () =>
+                                  _setFrequency(RecurrenceFrequency.weekly),
+                            ),
+                            _RepeatChip(
+                              label: 'Monthly',
+                              selected: _recurrenceFrequency ==
+                                  RecurrenceFrequency.monthly,
+                              onTap: () =>
+                                  _setFrequency(RecurrenceFrequency.monthly),
+                            ),
+                            _RepeatChip(
+                              label: 'Yearly',
+                              selected: _recurrenceFrequency ==
+                                  RecurrenceFrequency.yearly,
+                              onTap: () =>
+                                  _setFrequency(RecurrenceFrequency.yearly),
+                            ),
+                          ],
+                        ),
+                        if (_recurrenceFrequency ==
+                            RecurrenceFrequency.weekly) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            'Leave all off to repeat weekly on the same day as the schedule date.',
+                            style: TextStyle(
+                                color: context.subtleColor, fontSize: 11),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              for (var d = 1; d <= 7; d++)
+                                _WeekdayToggle(
+                                  label: const [
+                                    'M',
+                                    'T',
+                                    'W',
+                                    'T',
+                                    'F',
+                                    'S',
+                                    'S'
+                                  ][d - 1],
+                                  selected: _recurrenceWeekdays.contains(d),
+                                  onTap: () => _toggleWeekday(d),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ],
                   ),
-                AddTaskCategoryChip(
-                  onTap: () async {
-                    final created = await showAddTaskCategoryDialog(context);
-                    if (created != null) {
-                      setState(() => _categoryId = created.id);
-                    }
-                  },
-                ),
-              ],
-            ),
           ),
           const SizedBox(height: 20),
 
@@ -1584,12 +1884,11 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
   }
 }
 
-class _PriorityChip extends StatelessWidget {
+class _RepeatChip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-
-  const _PriorityChip(
+  const _RepeatChip(
       {required this.label, required this.selected, required this.onTap});
 
   @override
@@ -1598,8 +1897,7 @@ class _PriorityChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
           color: selected
               ? AppColors.primary.withValues(alpha: 0.12)
@@ -1613,9 +1911,8 @@ class _PriorityChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color:
-                selected ? AppColors.primary : context.mutedColor,
-            fontSize: 13,
+            color: selected ? AppColors.primary : context.mutedColor,
+            fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -1623,3 +1920,41 @@ class _PriorityChip extends StatelessWidget {
     );
   }
 }
+
+class _WeekdayToggle extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _WeekdayToggle(
+      {required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected ? AppColors.primary : context.inputBg,
+          border: Border.all(
+            color: selected ? AppColors.primary : context.subtleColor,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.white : context.mutedColor,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+

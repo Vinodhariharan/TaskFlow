@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'task_recurrence.dart';
 
 class Task {
   final String id;
@@ -10,6 +11,9 @@ class Task {
   TaskPriority priority;
   DateTime? scheduledDate; // null = general/today task
   String? categoryId; // null = uncategorized
+  TaskRecurrence? recurrence; // only meaningful alongside scheduledDate
+  int? reminderHour; // 0-23, local time; null = no reminder
+  int? reminderMinute; // 0-59
 
   Task({
     required this.id,
@@ -21,7 +25,12 @@ class Task {
     this.priority = TaskPriority.normal,
     this.scheduledDate,
     this.categoryId,
+    this.recurrence,
+    this.reminderHour,
+    this.reminderMinute,
   });
+
+  bool get hasReminder => reminderHour != null && reminderMinute != null;
 
   /// Returns true if this is a general task (no scheduled date)
   bool get isGeneral => scheduledDate == null;
@@ -73,6 +82,11 @@ class Task {
     bool clearScheduledDate = false,
     String? categoryId,
     bool clearCategoryId = false,
+    TaskRecurrence? recurrence,
+    bool clearRecurrence = false,
+    int? reminderHour,
+    int? reminderMinute,
+    bool clearReminder = false,
   }) {
     return Task(
       id: id ?? this.id,
@@ -85,6 +99,11 @@ class Task {
       scheduledDate:
           clearScheduledDate ? null : (scheduledDate ?? this.scheduledDate),
       categoryId: clearCategoryId ? null : (categoryId ?? this.categoryId),
+      recurrence: clearRecurrence ? null : (recurrence ?? this.recurrence),
+      reminderHour:
+          clearReminder ? null : (reminderHour ?? this.reminderHour),
+      reminderMinute:
+          clearReminder ? null : (reminderMinute ?? this.reminderMinute),
     );
   }
 
@@ -99,6 +118,9 @@ class Task {
       'priority': priority.index,
       'scheduledDate': scheduledDate?.toIso8601String(),
       'categoryId': categoryId,
+      'recurrence': recurrence?.toJson(),
+      'reminderHour': reminderHour,
+      'reminderMinute': reminderMinute,
     };
   }
 
@@ -117,6 +139,11 @@ class Task {
           ? DateTime.parse(json['scheduledDate'] as String)
           : null,
       categoryId: json['categoryId'] as String?,
+      recurrence: json['recurrence'] != null
+          ? TaskRecurrence.fromJson(json['recurrence'] as Map<String, dynamic>)
+          : null,
+      reminderHour: json['reminderHour'] as int?,
+      reminderMinute: json['reminderMinute'] as int?,
     );
   }
 
