@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
 import 'services/task_category_service.dart';
+import 'services/task_change_notifier.dart';
 import 'services/task_service.dart';
 import 'screens/root_shell.dart';
 import 'screens/task_category_widgets.dart';
@@ -192,12 +193,22 @@ class _HomeScreenState extends State<HomeScreen>
       duration: const Duration(milliseconds: 200),
     );
     TaskCategoryService.instance.load();
+    // Any add/update/delete/toggle/category-reassignment from ANY screen
+    // fires this, so this screen stays in sync even when the change
+    // happened elsewhere — e.g. reassigning a task's category from
+    // Settings > Manage task categories after deleting the category it was
+    // on used to leave this screen showing stale data until some other
+    // action forced a reload.
+    TaskChangeNotifier.instance.addListener(_refresh);
+    TaskCategoryService.instance.addListener(_pruneStaleFilters);
     _refresh();
   }
 
   @override
   void dispose() {
     _fabController.dispose();
+    TaskChangeNotifier.instance.removeListener(_refresh);
+    TaskCategoryService.instance.removeListener(_pruneStaleFilters);
     super.dispose();
   }
 
@@ -207,6 +218,18 @@ class _HomeScreenState extends State<HomeScreen>
       _todayFuture = _taskService.getTodayTasks(categoryIds: categoryIds);
       _scheduledFuture = _taskService.getScheduledTasks(categoryIds: categoryIds);
     });
+  }
+
+  /// Drops any selected filter chip whose category no longer exists (e.g.
+  /// it was just deleted) so a stale filter doesn't silently keep showing
+  /// an empty list with no visible chip left to explain why.
+  void _pruneStaleFilters() {
+    if (_selectedCategoryIds.isEmpty) return;
+    final validIds = TaskCategoryService.instance.all.map((c) => c.id).toSet();
+    final hadInvalid = _selectedCategoryIds.any((id) => !validIds.contains(id));
+    if (!hadInvalid) return;
+    setState(() => _selectedCategoryIds.removeWhere((id) => !validIds.contains(id)));
+    _refresh();
   }
 
   void _toggleCategoryFilter(String id) {
@@ -772,10 +795,15 @@ class _TaskTile extends StatefulWidget {
   State<_TaskTile> createState() => _TaskTileState();
 }
 
-class _TaskTileState extends State<_TaskTile>
-    with SingleTickerProviderStateMixin {
+class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
+  // Same swipe-reveal-then-tap-icon delete pattern as ExpenseTile: swipe
+  // left caps at a fixed reveal width showing a delete icon behind the
+  // tile; tapping that icon deletes with no confirmation dialog.
+  static const _revealWidth = 72.0;
+
   late AnimationController _checkController;
   late Animation<double> _checkScale;
+  late final AnimationController _dragController;
 
   @override
   void initState() {
@@ -785,17 +813,52 @@ class _TaskTileState extends State<_TaskTile>
     _checkScale = Tween<double>(begin: 1.0, end: 0.85).animate(
         CurvedAnimation(
             parent: _checkController, curve: Curves.easeInOut));
+    _dragController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 200));
   }
 
   @override
   void dispose() {
     _checkController.dispose();
+    _dragController.dispose();
     super.dispose();
   }
 
+  void _closeReveal() => _dragController.animateTo(0.0, curve: Curves.easeOut);
+
   void _onTap() {
+    if (_dragController.value > 0) {
+      _closeReveal();
+      return;
+    }
     _checkController.forward().then((_) => _checkController.reverse());
     widget.onToggle();
+  }
+
+  void _onLongPress() {
+    if (_dragController.value > 0) {
+      _closeReveal();
+      return;
+    }
+    if (widget.task.isCompleted) return;
+    widget.onEdit();
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final delta = details.primaryDelta ?? 0;
+    _dragController.value =
+        (_dragController.value - delta / _revealWidth).clamp(0.0, 1.0);
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final open = velocity < -300 || (velocity <= 300 && _dragController.value > 0.5);
+    _dragController.animateTo(open ? 1.0 : 0.0, curve: Curves.easeOut);
+  }
+
+  void _handleDelete() {
+    HapticFeedback.mediumImpact();
+    widget.onDelete();
   }
 
   Color? _borderColor() {
@@ -823,56 +886,67 @@ class _TaskTileState extends State<_TaskTile>
     final borderColor = _borderColor();
     final tint = _tintColor();
 
-    return Dismissible(
-      key: ValueKey('dismiss_${task.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-        decoration: BoxDecoration(
-          color: AppColors.danger.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: const Icon(Icons.delete_outline_rounded,
-            color: AppColors.danger, size: 22),
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: borderColor != null
+            ? Border.all(color: borderColor.withValues(alpha: 0.5), width: 1.5)
+            : (isHigh && !task.isCompleted
+                ? Border.all(
+                    color: AppColors.primary.withValues(alpha: 0.35), width: 1)
+                : null),
+        boxShadow: context.isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
-      onDismissed: (_) => widget.onDelete(),
-      child: GestureDetector(
-        onLongPress: task.isCompleted ? null : widget.onEdit,
-        child: Container(
-          margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          decoration: BoxDecoration(
-            color: tint ?? context.cardColor,
-            borderRadius: BorderRadius.circular(16),
-            border: borderColor != null
-                ? Border.all(color: borderColor.withValues(alpha: 0.5), width: 1.5)
-                : (isHigh && !task.isCompleted
-                    ? Border.all(
-                        color: AppColors.primary.withValues(alpha: 0.35),
-                        width: 1)
-                    : null),
-            boxShadow: context.isDark
-                ? null
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: Row(
+                children: [
+                  const Expanded(child: SizedBox()),
+                  GestureDetector(
+                    onTap: _handleDelete,
+                    child: Container(
+                      width: _revealWidth,
+                      color: AppColors.danger,
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.delete_outline_rounded,
+                          color: Colors.white, size: 22),
                     ),
-                  ],
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              onTap: _onTap,
-              splashColor: AppColors.primary.withValues(alpha: 0.05),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 12),
-                child: Row(
-                  children: [
+                  ),
+                ],
+              ),
+            ),
+            AnimatedBuilder(
+              animation: _dragController,
+              builder: (context, child) => Transform.translate(
+                offset: Offset(-_revealWidth * _dragController.value, 0),
+                child: child,
+              ),
+              child: GestureDetector(
+                onHorizontalDragUpdate: _handleDragUpdate,
+                onHorizontalDragEnd: _handleDragEnd,
+                onLongPress: _onLongPress,
+                child: Material(
+                  color: tint ?? context.cardColor,
+                  child: InkWell(
+                    onTap: _onTap,
+                    splashColor: AppColors.primary.withValues(alpha: 0.05),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
+                      child: Row(
+                    children: [
                     // Checkbox
                     ScaleTransition(
                       scale: _checkScale,
@@ -1020,10 +1094,13 @@ class _TaskTileState extends State<_TaskTile>
                       ),
                     ],
                   ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/task.dart';
+import 'task_change_notifier.dart';
 
 class TaskService {
   static const _tasksKey = 'tasks_v1';
@@ -136,6 +137,7 @@ class TaskService {
     );
     tasks.add(task);
     await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
     return task;
   }
 
@@ -157,7 +159,10 @@ class TaskService {
         changed = true;
       }
     }
-    if (changed) await _saveAll(all);
+    if (changed) {
+      await _saveAll(all);
+      TaskChangeNotifier.instance.notifyChanged();
+    }
   }
 
   Future<void> toggleComplete(String id) async {
@@ -170,6 +175,7 @@ class TaskService {
       completedDate: !t.isCompleted ? DateTime.now() : null,
     );
     await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
   }
 
   Future<void> updateTask(Task updated) async {
@@ -178,17 +184,20 @@ class TaskService {
     if (idx == -1) return;
     tasks[idx] = updated;
     await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
   }
 
   Future<void> deleteTask(String id) async {
     final tasks = await _loadAll();
     tasks.removeWhere((t) => t.id == id);
     await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
   }
 
   Future<void> clearCompleted() async {
     final tasks = await _loadAll();
     tasks.removeWhere((t) => t.isCompleted);
     await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
   }
 }

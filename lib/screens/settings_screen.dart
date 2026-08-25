@@ -380,10 +380,18 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
                 c.label.toLowerCase().contains(q) || c.code.toLowerCase().contains(q))
             .toList();
 
+    // Shrink the sheet to fit above the keyboard (instead of a fixed 70% of
+    // the full screen height, which could still put the search field or
+    // list under the keyboard once it opens), and pad the bottom to match.
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final maxHeight = ((screenHeight - bottomInset) * 0.82)
+        .clamp(260.0, screenHeight * 0.7);
+
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
       decoration: BoxDecoration(
         color: context.sheetBg,
         borderRadius: BorderRadius.circular(24),
