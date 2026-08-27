@@ -45,14 +45,23 @@ class TaskService {
           !categoryIds.contains(t.categoryId)) {
         return false;
       }
+      // Completed just now (today), regardless of the task's original
+      // scheduled/created day — otherwise checking off an overdue or
+      // carried-over task makes it vanish instead of showing as done.
+      final completedToday = t.isCompleted &&
+          t.completedDate != null &&
+          _dateOnly(t.completedDate!) == today;
       if (t.scheduledDate != null) {
         final sd = _dateOnly(t.scheduledDate!);
         // Scheduled for today OR overdue (past + incomplete)
-        return sd == today || (sd.isBefore(today) && !t.isCompleted);
+        return sd == today ||
+            (sd.isBefore(today) && !t.isCompleted) ||
+            completedToday;
       } else {
         // General: created today OR incomplete from a previous day
-        final taskDay = _dateOnly(t.createdDate);
-        return taskDay == today || (!t.isCompleted && taskDay.isBefore(today));
+        return _dateOnly(t.createdDate) == today ||
+            (!t.isCompleted && _dateOnly(t.createdDate).isBefore(today)) ||
+            completedToday;
       }
     }).toList()
       ..sort((a, b) {

@@ -45,66 +45,99 @@ class NotificationService {
   /// Requests the Android 13+ notification permission and, separately, the
   /// exact-alarm permission (which opens a system settings screen if not
   /// already granted). Call this the first time a user turns a reminder on,
-  /// not unconditionally at startup.
+  /// not unconditionally at startup. Swallows failures — a denied or
+  /// unavailable permission request should never block the caller (e.g. the
+  /// Add Task sheet) from continuing.
   Future<void> requestPermissions() async {
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    if (android == null) return;
-    await android.requestNotificationsPermission();
-    final canExact = await android.canScheduleExactNotifications() ?? false;
-    if (!canExact) {
-      await android.requestExactAlarmsPermission();
+    try {
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (android == null) return;
+      await android.requestNotificationsPermission();
+      final canExact = await android.canScheduleExactNotifications() ?? false;
+      if (!canExact) {
+        await android.requestExactAlarmsPermission();
+      }
+    } catch (_) {
+      // Permission dialogs can be unavailable on some OEM builds; scheduling
+      // itself still falls back to inexact alarms when exact isn't granted.
     }
   }
 
   DateTime? _nextReminderMoment(Task task) {
     if (!task.hasReminder) return null;
-    final base = task.scheduledDate ?? DateTime.now();
-    final moment = DateTime(
-        base.year, base.month, base.day, task.reminderHour!, task.reminderMinute!);
-    return moment.isAfter(DateTime.now()) ? moment : null;
+    final now = DateTime.now();
+    if (task.scheduledDate != null) {
+      final base = task.scheduledDate!;
+      final moment = DateTime(
+          base.year, base.month, base.day, task.reminderHour!, task.reminderMinute!);
+      return moment.isAfter(now) ? moment : null;
+    }
+    // No scheduled date: the reminder is implicitly "today at this time".
+    // If that moment has already passed today, roll it to tomorrow instead
+    // of silently scheduling nothing — picking a time earlier than now
+    // otherwise looks identical to a reminder that was never set at all.
+    var moment =
+        DateTime(now.year, now.month, now.day, task.reminderHour!, task.reminderMinute!);
+    if (!moment.isAfter(now)) {
+      moment = moment.add(const Duration(days: 1));
+    }
+    return moment;
   }
 
   /// Cancels any existing notification for [task], then schedules a fresh
   /// one if it currently has a reminder set for a moment still in the
   /// future. Safe to call after any edit — it's always cancel-then-add.
+  /// Failures (denied permissions, plugin/platform errors) are swallowed so
+  /// a broken reminder never blocks saving the task itself.
   Future<void> scheduleForTask(Task task) async {
-    if (!_initialized) await init();
-    final id = _idFor(task.id);
-    await _plugin.cancel(id);
-    if (task.isCompleted) return;
-    final moment = _nextReminderMoment(task);
-    if (moment == null) return;
+    try {
+      if (!_initialized) await init();
+      final id = _idFor(task.id);
+      await _plugin.cancel(id);
+      if (task.isCompleted) return;
+      final moment = _nextReminderMoment(task);
+      if (moment == null) return;
 
-    final android = _plugin.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>();
-    final canExact = await android?.canScheduleExactNotifications() ?? false;
+      final android = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      final canExact = await android?.canScheduleExactNotifications() ?? false;
 
-    await _plugin.zonedSchedule(
-      id,
-      task.title,
-      task.note != null && task.note!.isNotEmpty ? task.note : 'Task reminder',
-      tz.TZDateTime.from(moment, tz.local),
-      const NotificationDetails(
-        android: AndroidNotificationDetails(
-          _channelId,
-          _channelName,
-          channelDescription: 'Reminders for tasks you\'ve set a time on',
-          importance: Importance.high,
-          priority: Priority.high,
+      await _plugin.zonedSchedule(
+        id,
+        task.title,
+        task.note != null && task.note!.isNotEmpty
+            ? task.note
+            : 'Task reminder',
+        tz.TZDateTime.from(moment, tz.local),
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            _channelName,
+            channelDescription: 'Reminders for tasks you\'ve set a time on',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
         ),
-      ),
-      androidScheduleMode: canExact
-          ? AndroidScheduleMode.exactAllowWhileIdle
-          : AndroidScheduleMode.inexactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation:
-          UILocalNotificationDateInterpretation.absoluteTime,
-    );
+        androidScheduleMode: canExact
+            ? AndroidScheduleMode.exactAllowWhileIdle
+            : AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (_) {
+      // A missing permission or platform error shouldn't stop the task
+      // itself from saving — the reminder just won't fire this time.
+    }
   }
 
   Future<void> cancelForTask(String taskId) async {
-    if (!_initialized) await init();
-    await _plugin.cancel(_idFor(taskId));
+    try {
+      if (!_initialized) await init();
+      await _plugin.cancel(_idFor(taskId));
+    } catch (_) {
+      // Best-effort — nothing useful to do if cancellation fails.
+    }
   }
 
   /// Re-schedules every upcoming reminder from scratch — call once on app

@@ -1371,40 +1371,48 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
         : TaskRecurrence(
             frequency: _recurrenceFrequency!, weekdays: _recurrenceWeekdays);
 
-    if (widget.editTask != null) {
-      final updated = widget.editTask!.copyWith(
-        title: title,
-        note: _noteController.text.trim().isEmpty
-            ? null
-            : _noteController.text.trim(),
-        priority: _priority,
-        scheduledDate: _scheduledDate,
-        clearScheduledDate: _scheduledDate == null,
-        categoryId: _categoryId,
-        clearCategoryId: _categoryId == null,
-        recurrence: recurrence,
-        clearRecurrence: recurrence == null,
-        reminderHour: _reminderHour,
-        reminderMinute: _reminderMinute,
-        clearReminder: _reminderHour == null,
-      );
-      await widget.taskService.updateTask(updated);
-    } else {
-      await widget.taskService.addTask(
-        title: title,
-        note: _noteController.text.trim().isEmpty
-            ? null
-            : _noteController.text.trim(),
-        priority: _priority,
-        scheduledDate: _scheduledDate,
-        categoryId: _categoryId,
-        recurrence: recurrence,
-        reminderHour: _reminderHour,
-        reminderMinute: _reminderMinute,
-      );
+    try {
+      if (widget.editTask != null) {
+        final updated = widget.editTask!.copyWith(
+          title: title,
+          note: _noteController.text.trim().isEmpty
+              ? null
+              : _noteController.text.trim(),
+          priority: _priority,
+          scheduledDate: _scheduledDate,
+          clearScheduledDate: _scheduledDate == null,
+          categoryId: _categoryId,
+          clearCategoryId: _categoryId == null,
+          recurrence: recurrence,
+          clearRecurrence: recurrence == null,
+          reminderHour: _reminderHour,
+          reminderMinute: _reminderMinute,
+          clearReminder: _reminderHour == null,
+        );
+        await widget.taskService.updateTask(updated);
+      } else {
+        await widget.taskService.addTask(
+          title: title,
+          note: _noteController.text.trim().isEmpty
+              ? null
+              : _noteController.text.trim(),
+          priority: _priority,
+          scheduledDate: _scheduledDate,
+          categoryId: _categoryId,
+          recurrence: recurrence,
+          reminderHour: _reminderHour,
+          reminderMinute: _reminderMinute,
+        );
+      }
+      if (mounted) Navigator.of(context).pop();
+    } finally {
+      // Guarantees the Save button never spins forever even if something
+      // above throws before reaching the pop (e.g. a plugin failure that
+      // notification_service.dart itself didn't already swallow) — the task
+      // data is written before any of that can happen, so this only ever
+      // affects the button state, never data loss.
+      if (mounted) setState(() => _saving = false);
     }
-
-    if (mounted) Navigator.of(context).pop();
   }
 
   @override
