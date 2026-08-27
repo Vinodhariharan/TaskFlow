@@ -1334,6 +1334,31 @@ class _AddTaskSheetState extends State<AddTaskSheet> {
       _reminderMinute = picked.minute;
     });
     await NotificationService.instance.requestPermissions();
+
+    // A reminder for a specific scheduled date, at a time already past on
+    // that date, never fires — unlike an undated reminder there's no
+    // sensible day to roll it to, so at least warn instead of silently
+    // doing nothing.
+    if (_scheduledDate != null) {
+      final now = DateTime.now();
+      final moment = DateTime(_scheduledDate!.year, _scheduledDate!.month,
+          _scheduledDate!.day, picked.hour, picked.minute);
+      if (!moment.isAfter(now) && mounted) {
+        ScaffoldMessenger.of(context)
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                  'That time has already passed on the scheduled date — this reminder won\'t fire.',
+                  style: TextStyle(color: context.textColor)),
+              backgroundColor: context.cardColor,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+      }
+    }
   }
 
   void _clearReminder() {
