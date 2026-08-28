@@ -13,11 +13,23 @@ class NotificationDiagnostics {
   final String timeZone;
   final List<PendingNotificationRequest> pending;
 
+  /// Why reading the pending list failed, if it did — kept separate so one
+  /// broken probe doesn't blank out the rest of the report.
+  final String? pendingError;
+
+  /// The most recent error swallowed by scheduling/cancelling. Scheduling
+  /// deliberately never rethrows (a broken reminder must not block saving a
+  /// task), which is exactly how a release-only R8/Gson crash stayed
+  /// invisible — so it gets surfaced here instead.
+  final String? lastScheduleError;
+
   const NotificationDiagnostics({
     required this.notificationsEnabled,
     required this.canScheduleExact,
     required this.timeZone,
     required this.pending,
+    this.pendingError,
+    this.lastScheduleError,
   });
 }
 
@@ -62,6 +74,7 @@ class NotificationService {
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  String? _lastScheduleError;
 
   AndroidFlutterLocalNotificationsPlugin? get _android =>
       _plugin.resolvePlatformSpecificImplementation<
@@ -168,9 +181,13 @@ class NotificationService {
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
       );
-    } catch (_) {
+      _lastScheduleError = null;
+    } catch (e) {
       // A missing permission or platform error shouldn't stop the task
-      // itself from saving — the reminder just won't fire this time.
+      // itself from saving — the reminder just won't fire this time. Record
+      // it though: swallowing silently is how a release-only R8/Gson crash
+      // went unnoticed for several builds.
+      _lastScheduleError = e.toString();
     }
   }
 
@@ -178,8 +195,8 @@ class NotificationService {
     try {
       await init();
       await _plugin.cancel(_idFor(taskId));
-    } catch (_) {
-      // Best-effort — nothing useful to do if cancellation fails.
+    } catch (e) {
+      _lastScheduleError = e.toString();
     }
   }
 
@@ -197,14 +214,42 @@ class NotificationService {
 
   // ── Diagnostics (Settings > Notifications) ────────────────────────────────
 
+  /// Each probe is isolated: reading the pending list is the one that failed
+  /// under R8, and when it threw it took the whole report down with it,
+  /// hiding the permission answers that were actually fine.
   Future<NotificationDiagnostics> diagnostics() async {
     await init();
     final android = _android;
+
+    bool? enabled;
+    try {
+      enabled = await android?.areNotificationsEnabled();
+    } catch (_) {
+      enabled = null;
+    }
+
+    bool? exact;
+    try {
+      exact = await android?.canScheduleExactNotifications();
+    } catch (_) {
+      exact = null;
+    }
+
+    var pending = <PendingNotificationRequest>[];
+    String? pendingError;
+    try {
+      pending = await _plugin.pendingNotificationRequests();
+    } catch (e) {
+      pendingError = e.toString();
+    }
+
     return NotificationDiagnostics(
-      notificationsEnabled: await android?.areNotificationsEnabled(),
-      canScheduleExact: await android?.canScheduleExactNotifications(),
+      notificationsEnabled: enabled,
+      canScheduleExact: exact,
       timeZone: tz.local.name,
-      pending: await _plugin.pendingNotificationRequests(),
+      pending: pending,
+      pendingError: pendingError,
+      lastScheduleError: _lastScheduleError,
     );
   }
 

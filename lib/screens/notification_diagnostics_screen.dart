@@ -153,9 +153,20 @@ class _NotificationDiagnosticsScreenState
                 _Divider(),
                 _infoRow('Time zone', _diag!.timeZone),
                 _Divider(),
-                _infoRow('Reminders currently scheduled',
-                    '${_diag!.pending.length}'),
+                _infoRow(
+                  'Reminders currently scheduled',
+                  _diag!.pendingError != null
+                      ? 'error'
+                      : '${_diag!.pending.length}',
+                ),
               ]),
+              if (_diag!.pendingError != null ||
+                  _diag!.lastScheduleError != null) ...[
+                const SizedBox(height: 12),
+                _errorCard(
+                  _diag!.pendingError ?? _diag!.lastScheduleError!,
+                ),
+              ],
               const SizedBox(height: 12),
               if (_diag!.notificationsEnabled == false ||
                   _diag!.canScheduleExact == false)
@@ -232,6 +243,50 @@ class _NotificationDiagnosticsScreenState
         ),
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      );
+
+  /// Shown when the plugin itself errored rather than merely reporting a
+  /// denied permission — the text is the raw platform exception, so it stays
+  /// scrollable rather than overflowing the card.
+  Widget _errorCard(String message) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.danger.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: AppColors.danger.withValues(alpha: 0.4), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.bug_report_outlined,
+                    size: 16, color: AppColors.danger),
+                SizedBox(width: 8),
+                Text('Plugin error',
+                    style: TextStyle(
+                        color: AppColors.danger,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 180),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  message,
+                  style: TextStyle(
+                      color: context.secondaryTextColor,
+                      fontSize: 11,
+                      height: 1.4),
+                ),
+              ),
+            ),
+          ],
+        ),
       );
 
   Widget _statusRow(String label, bool? value, {required String whenFalse}) {

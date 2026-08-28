@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The notification icon is referenced only from Dart, as the string
+  '@mipmap/ic_launcher' passed to AndroidInitializationSettings. R8's resource
+  shrinker (Flutter enables isShrinkResources for release app builds) can't see
+  that reference, so it may discard the drawable. When that happens the system
+  looks up a resource that no longer exists and the notification silently fails
+  to post — no error, nothing shown. Pinning these keeps that from happening.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@mipmap/ic_launcher,@mipmap/*,@drawable/*" />
