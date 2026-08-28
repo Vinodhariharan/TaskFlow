@@ -76,6 +76,48 @@ class NotificationService {
   bool _initialized = false;
   String? _lastScheduleError;
 
+  /// Called with a task id when a reminder is tapped. Set by the app shell so
+  /// the tap can open that task's page. Stored rather than hard-wired to a
+  /// navigator so this service stays free of UI imports.
+  void Function(String taskId)? onReminderTapped;
+
+  /// A tap that arrived before [onReminderTapped] was wired up — i.e. the app
+  /// was launched from a cold start *by* the notification, so the callback
+  /// didn't exist yet. Held here and replayed by [consumePendingTap].
+  String? _pendingTaskId;
+
+  void _handleTap(String? payload) {
+    if (payload == null || payload.isEmpty) return;
+    final handler = onReminderTapped;
+    if (handler != null) {
+      handler(payload);
+    } else {
+      _pendingTaskId = payload;
+    }
+  }
+
+  /// Returns the task id of a reminder tapped while the app was not running,
+  /// clearing it so it's only ever acted on once. Covers both a tap that
+  /// arrived before the handler was set and the launch-details path Android
+  /// uses when the process was started by the notification.
+  Future<String?> consumePendingTap() async {
+    if (_pendingTaskId != null) {
+      final id = _pendingTaskId;
+      _pendingTaskId = null;
+      return id;
+    }
+    try {
+      final details = await _plugin.getNotificationAppLaunchDetails();
+      if (details?.didNotificationLaunchApp ?? false) {
+        final payload = details?.notificationResponse?.payload;
+        if (payload != null && payload.isNotEmpty) return payload;
+      }
+    } catch (_) {
+      // Not worth failing startup over.
+    }
+    return null;
+  }
+
   AndroidFlutterLocalNotificationsPlugin? get _android =>
       _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -97,6 +139,8 @@ class NotificationService {
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
+      onDidReceiveNotificationResponse: (response) =>
+          _handleTap(response.payload),
     );
     // Create the channel explicitly rather than relying on it being created
     // lazily at first show — otherwise its importance (and so whether it
@@ -180,6 +224,8 @@ class NotificationService {
             : AndroidScheduleMode.inexactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        // Carries the task id so tapping the reminder can open that task.
+        payload: task.id,
       );
       _lastScheduleError = null;
     } catch (e) {

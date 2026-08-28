@@ -8,6 +8,7 @@ import '../services/settings_service.dart';
 import '../services/task_service.dart';
 import 'expenses_home_tab.dart';
 import 'settings_screen.dart';
+import 'task_detail_screen.dart';
 
 /// Top-level shell that switches between the unmodified TaskFlow task list
 /// and the new Expenses tab via a segmented pill at the top of the screen,
@@ -49,17 +50,36 @@ class _RootShellState extends State<RootShell> {
     // still denied fires into nothing. Then re-arm every upcoming reminder,
     // which also catches up anything scheduled before permission was
     // granted, or lost to a reinstall.
+    // Tapping a reminder opens that task's page. Wired before init() finishes
+    // so a tap arriving mid-startup is handled rather than dropped.
+    NotificationService.instance.onReminderTapped = _openTask;
     NotificationService.instance.init().then((_) async {
       await NotificationService.instance.requestPermissions();
       final tasks = await TaskService().getAllTasks();
       await NotificationService.instance.rescheduleAll(tasks);
+      // A reminder tapped while the app wasn't running launches it here
+      // instead of going through onReminderTapped.
+      final pending = await NotificationService.instance.consumePendingTap();
+      if (pending != null) _openTask(pending);
     });
   }
 
   @override
   void dispose() {
+    if (NotificationService.instance.onReminderTapped == _openTask) {
+      NotificationService.instance.onReminderTapped = null;
+    }
     _pageController.dispose();
     super.dispose();
+  }
+
+  /// Opens a task's detail page from a tapped reminder. Uses the shell's own
+  /// context so it works whatever is currently on screen.
+  void _openTask(String taskId) {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: taskId)),
+    );
   }
 
   void _goToPage(int pageIndex) {

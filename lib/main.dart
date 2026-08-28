@@ -3,13 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
-import 'models/task_recurrence.dart';
-import 'services/notification_service.dart';
 import 'services/task_category_service.dart';
 import 'services/task_change_notifier.dart';
 import 'services/task_service.dart';
 import 'screens/root_shell.dart';
 import 'screens/task_category_widgets.dart';
+import 'screens/task_detail_screen.dart';
+import 'screens/task_form_screen.dart';
 
 /// A single, persistent ScaffoldMessenger used for snackbars that need to
 /// survive a route push (e.g. deleting an expense right before navigating
@@ -245,16 +245,27 @@ class _HomeScreenState extends State<HomeScreen>
     _refresh();
   }
 
+  /// Opens the full-page task form. It moved off a bottom sheet once a task
+  /// grew a note, category, reminder time and repeat rule — too much to show
+  /// in a sheet without hiding most of it.
   Future<void> _showAddTask({Task? editTask}) async {
     if (editTask == null) {
       _fabController.forward().then((_) => _fabController.reverse());
     }
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) =>
-          AddTaskSheet(taskService: _taskService, editTask: editTask),
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            TaskFormScreen(taskService: _taskService, editTask: editTask),
+      ),
+    );
+    _refresh();
+  }
+
+  /// Opens a task's own page — the same page a tapped reminder lands on,
+  /// and the only place a task can be edited.
+  Future<void> _openTask(Task task) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task.id)),
     );
     _refresh();
   }
@@ -460,8 +471,7 @@ class _HomeScreenState extends State<HomeScreen>
                               task: pending[i],
                               onToggle: () => _toggleTask(pending[i]),
                               onDelete: () => _deleteTask(pending[i]),
-                              onEdit: () =>
-                                  _showAddTask(editTask: pending[i]),
+                              onOpen: () => _openTask(pending[i]),
                             ),
                             childCount: pending.length,
                           ),
@@ -492,7 +502,7 @@ class _HomeScreenState extends State<HomeScreen>
                               task: completed[i],
                               onToggle: () => _toggleTask(completed[i]),
                               onDelete: () => _deleteTask(completed[i]),
-                              onEdit: () {},
+                              onOpen: () => _openTask(completed[i]),
                             ),
                             childCount: completed.length,
                           ),
@@ -515,8 +525,7 @@ class _HomeScreenState extends State<HomeScreen>
                                     _toggleTask(entry.value[i]),
                                 onDelete: () =>
                                     _deleteTask(entry.value[i]),
-                                onEdit: () => _showAddTask(
-                                    editTask: entry.value[i]),
+                                onOpen: () => _openTask(entry.value[i]),
                               ),
                               childCount: entry.value.length,
                             ),
@@ -783,14 +792,15 @@ class _TaskTile extends StatefulWidget {
   final Task task;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
-  final VoidCallback onEdit;
+  /// Opens the task's own page — where it can be edited.
+  final VoidCallback onOpen;
 
   const _TaskTile({
     super.key,
     required this.task,
     required this.onToggle,
     required this.onDelete,
-    required this.onEdit,
+    required this.onOpen,
   });
 
   @override
@@ -828,22 +838,24 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
 
   void _closeReveal() => _dragController.animateTo(0.0, curve: Curves.easeOut);
 
+  /// Tapping the row opens the task's page. Completing is the checkbox's job
+  /// (see [_onToggle]) — the row itself is navigation now that a task has a
+  /// page of its own.
   void _onTap() {
+    if (_dragController.value > 0) {
+      _closeReveal();
+      return;
+    }
+    widget.onOpen();
+  }
+
+  void _onToggle() {
     if (_dragController.value > 0) {
       _closeReveal();
       return;
     }
     _checkController.forward().then((_) => _checkController.reverse());
     widget.onToggle();
-  }
-
-  void _onLongPress() {
-    if (_dragController.value > 0) {
-      _closeReveal();
-      return;
-    }
-    if (widget.task.isCompleted) return;
-    widget.onEdit();
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
@@ -944,19 +956,24 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
               child: GestureDetector(
                 onHorizontalDragUpdate: _handleDragUpdate,
                 onHorizontalDragEnd: _handleDragEnd,
-                onLongPress: _onLongPress,
                 child: Material(
                   color: surface,
                   child: InkWell(
                     onTap: _onTap,
                     splashColor: AppColors.primary.withValues(alpha: 0.05),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 12),
+                      padding: const EdgeInsets.fromLTRB(6, 12, 16, 12),
                       child: Row(
                     children: [
-                    // Checkbox
-                    ScaleTransition(
+                    // Checkbox — its own tap target now that tapping the row
+                    // opens the task instead of completing it. The padding
+                    // gives a full-size touch area around a small dot.
+                    GestureDetector(
+                      onTap: _onToggle,
+                      behavior: HitTestBehavior.opaque,
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: ScaleTransition(
                       scale: _checkScale,
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),
@@ -979,8 +996,10 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                                 size: 14, color: Colors.white)
                             : null,
                       ),
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 4),
                     // Content
                     Expanded(
                       child: Column(
@@ -1087,20 +1106,13 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                             color: AppColors.primary,
                           ),
                         ),
-                      GestureDetector(
-                        onTap: widget.onEdit,
-                        child: Container(
-                          margin: const EdgeInsets.only(left: 8),
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: context.inputBg,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(Icons.edit_rounded,
-                              size: 15, color: context.mutedColor),
-                        ),
-                      ),
                     ],
+                    // Points at the task's own page, where it can be edited.
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Icon(Icons.chevron_right_rounded,
+                          size: 20, color: context.subtleColor),
+                    ),
                   ],
                       ),
                     ),
@@ -1216,782 +1228,6 @@ class _EmptyState extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Add / Edit Task Sheet
-// ─────────────────────────────────────────────────────────────────────────────
-
-class AddTaskSheet extends StatefulWidget {
-  final TaskService taskService;
-  final Task? editTask;
-
-  const AddTaskSheet(
-      {super.key, required this.taskService, this.editTask});
-
-  @override
-  State<AddTaskSheet> createState() => _AddTaskSheetState();
-}
-
-class _AddTaskSheetState extends State<AddTaskSheet> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _noteController;
-  late TaskPriority _priority;
-  DateTime? _scheduledDate;
-  String? _categoryId;
-  int? _reminderHour;
-  int? _reminderMinute;
-  RecurrenceFrequency? _recurrenceFrequency;
-  Set<int> _recurrenceWeekdays = {};
-  bool _expanded = false;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    final t = widget.editTask;
-    _titleController = TextEditingController(text: t?.title ?? '');
-    _noteController = TextEditingController(text: t?.note ?? '');
-    _priority = t?.priority ?? TaskPriority.normal;
-    _scheduledDate = t?.scheduledDate;
-    _categoryId = t?.categoryId;
-    _reminderHour = t?.reminderHour;
-    _reminderMinute = t?.reminderMinute;
-    _recurrenceFrequency = t?.recurrence?.frequency;
-    _recurrenceWeekdays = {...(t?.recurrence?.weekdays ?? const <int>{})};
-    // Auto-expand when editing a task that already has one of the
-    // "more options" fields set, so editing doesn't hide existing values
-    // behind a collapsed section.
-    _expanded = t != null &&
-        ((t.note?.isNotEmpty ?? false) ||
-            t.categoryId != null ||
-            t.hasReminder ||
-            t.recurrence != null);
-    TaskCategoryService.instance.load();
-    _titleController.addListener(() => setState(() {}));
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _noteController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickDate() async {
-    final now = DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _scheduledDate ?? now.add(const Duration(days: 1)),
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: AppColors.primary,
-                  onPrimary: Colors.white,
-                  surface: context.sheetBg,
-                  onSurface: context.textColor,
-                ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked != null) setState(() => _scheduledDate = picked);
-  }
-
-  void _clearDate() {
-    setState(() {
-      _scheduledDate = null;
-      // Recurrence needs a scheduled date to advance from.
-      _recurrenceFrequency = null;
-      _recurrenceWeekdays = {};
-    });
-  }
-
-  Future<void> _pickReminderTime() async {
-    final picked = await showTimePicker(
-      context: context,
-      initialTime: _reminderHour != null
-          ? TimeOfDay(hour: _reminderHour!, minute: _reminderMinute!)
-          : TimeOfDay.now(),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: AppColors.primary,
-                  onPrimary: Colors.white,
-                  surface: context.sheetBg,
-                  onSurface: context.textColor,
-                ),
-          ),
-          child: child!,
-        );
-      },
-    );
-    if (picked == null) return;
-    setState(() {
-      _reminderHour = picked.hour;
-      _reminderMinute = picked.minute;
-    });
-    await NotificationService.instance.requestPermissions();
-
-    // A reminder for a specific scheduled date, at a time already past on
-    // that date, never fires — unlike an undated reminder there's no
-    // sensible day to roll it to, so at least warn instead of silently
-    // doing nothing.
-    if (_scheduledDate != null) {
-      final now = DateTime.now();
-      final moment = DateTime(_scheduledDate!.year, _scheduledDate!.month,
-          _scheduledDate!.day, picked.hour, picked.minute);
-      if (!moment.isAfter(now) && mounted) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(
-            SnackBar(
-              content: Text(
-                  'That time has already passed on the scheduled date — this reminder won\'t fire.',
-                  style: TextStyle(color: context.textColor)),
-              backgroundColor: context.cardColor,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-          );
-      }
-    }
-  }
-
-  void _clearReminder() {
-    setState(() {
-      _reminderHour = null;
-      _reminderMinute = null;
-    });
-  }
-
-  void _setFrequency(RecurrenceFrequency? f) {
-    setState(() {
-      _recurrenceFrequency = f;
-      if (f != RecurrenceFrequency.weekly) _recurrenceWeekdays = {};
-    });
-  }
-
-  void _toggleWeekday(int d) {
-    setState(() {
-      if (_recurrenceWeekdays.contains(d)) {
-        _recurrenceWeekdays.remove(d);
-      } else {
-        _recurrenceWeekdays.add(d);
-      }
-    });
-  }
-
-  Future<void> _save() async {
-    final title = _titleController.text.trim();
-    if (title.isEmpty) return;
-    setState(() => _saving = true);
-    HapticFeedback.lightImpact();
-
-    final recurrence = _recurrenceFrequency == null
-        ? null
-        : TaskRecurrence(
-            frequency: _recurrenceFrequency!, weekdays: _recurrenceWeekdays);
-
-    try {
-      if (widget.editTask != null) {
-        final updated = widget.editTask!.copyWith(
-          title: title,
-          note: _noteController.text.trim().isEmpty
-              ? null
-              : _noteController.text.trim(),
-          priority: _priority,
-          scheduledDate: _scheduledDate,
-          clearScheduledDate: _scheduledDate == null,
-          categoryId: _categoryId,
-          clearCategoryId: _categoryId == null,
-          recurrence: recurrence,
-          clearRecurrence: recurrence == null,
-          reminderHour: _reminderHour,
-          reminderMinute: _reminderMinute,
-          clearReminder: _reminderHour == null,
-        );
-        await widget.taskService.updateTask(updated);
-      } else {
-        await widget.taskService.addTask(
-          title: title,
-          note: _noteController.text.trim().isEmpty
-              ? null
-              : _noteController.text.trim(),
-          priority: _priority,
-          scheduledDate: _scheduledDate,
-          categoryId: _categoryId,
-          recurrence: recurrence,
-          reminderHour: _reminderHour,
-          reminderMinute: _reminderMinute,
-        );
-      }
-      if (mounted) Navigator.of(context).pop();
-    } finally {
-      // Guarantees the Save button never spins forever even if something
-      // above throws before reaching the pop (e.g. a plugin failure that
-      // notification_service.dart itself didn't already swallow) — the task
-      // data is written before any of that can happen, so this only ever
-      // affects the button state, never data loss.
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isEdit = widget.editTask != null;
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-    final canSave = _titleController.text.trim().isNotEmpty && !_saving;
-    final hasDate = _scheduledDate != null;
-    final hasReminder = _reminderHour != null;
-    final hasMoreSet = _noteController.text.trim().isNotEmpty ||
-        _categoryId != null ||
-        hasReminder ||
-        _recurrenceFrequency != null;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-      padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + bottomInset),
-      decoration: BoxDecoration(
-        color: context.sheetBg,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: context.isDark
-            ? null
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 20,
-                  offset: const Offset(0, -4),
-                ),
-              ],
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: context.handleColor,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          Text(
-            isEdit ? 'Edit task' : 'New task',
-            style: TextStyle(
-              color: context.textColor,
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Title
-          TextField(
-            controller: _titleController,
-            autofocus: true,
-            textCapitalization: TextCapitalization.sentences,
-            style: TextStyle(
-                color: context.textColor,
-                fontSize: 16,
-                fontWeight: FontWeight.w500),
-            decoration: InputDecoration(
-              hintText: 'What needs to be done?',
-              hintStyle:
-                  TextStyle(color: context.mutedColor, fontSize: 16),
-              filled: true,
-              fillColor: context.inputBg,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 14),
-            ),
-            onSubmitted: (_) => _save(),
-          ),
-          const SizedBox(height: 10),
-
-          // Compact quick-access row: schedule, priority, and a toggle for
-          // everything else (note/category/reminder/repeat) — keeps the
-          // sheet short by default instead of showing every field at once.
-          Row(
-            children: [
-              GestureDetector(
-                onTap: _pickDate,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: hasDate
-                        ? AppColors.primary.withValues(alpha: 0.12)
-                        : context.inputBg,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: hasDate
-                          ? AppColors.primary
-                          : context.subtleColor,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.calendar_today_rounded,
-                        size: 14,
-                        color: hasDate
-                            ? AppColors.primary
-                            : context.mutedColor,
-                      ),
-                      const SizedBox(width: 7),
-                      Text(
-                        hasDate
-                            ? DateFormat('EEE, MMM d')
-                                .format(_scheduledDate!)
-                            : 'Schedule',
-                        style: TextStyle(
-                          color: hasDate
-                              ? AppColors.primary
-                              : context.mutedColor,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              if (hasDate) ...[
-                const SizedBox(width: 6),
-                GestureDetector(
-                  onTap: _clearDate,
-                  child: Container(
-                    padding: const EdgeInsets.all(7),
-                    decoration: BoxDecoration(
-                      color: context.inputBg,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(Icons.close_rounded,
-                        size: 14, color: context.mutedColor),
-                  ),
-                ),
-              ],
-              const SizedBox(width: 8),
-              // Priority — a single tappable flag instead of two labeled
-              // chips, to keep this row compact.
-              GestureDetector(
-                onTap: () => setState(() => _priority =
-                    _priority == TaskPriority.normal
-                        ? TaskPriority.high
-                        : TaskPriority.normal),
-                child: Container(
-                  padding: const EdgeInsets.all(9),
-                  decoration: BoxDecoration(
-                    color: _priority == TaskPriority.high
-                        ? AppColors.primary.withValues(alpha: 0.12)
-                        : context.inputBg,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _priority == TaskPriority.high
-                          ? AppColors.primary
-                          : context.subtleColor,
-                      width: 1,
-                    ),
-                  ),
-                  child: Icon(
-                    Icons.flag_rounded,
-                    size: 14,
-                    color: _priority == TaskPriority.high
-                        ? AppColors.primary
-                        : context.mutedColor,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () => setState(() => _expanded = !_expanded),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _expanded ? 'Less' : (hasMoreSet ? 'More •' : 'More'),
-                      style: TextStyle(
-                        color: context.mutedColor,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    AnimatedRotation(
-                      duration: const Duration(milliseconds: 150),
-                      turns: _expanded ? 0.5 : 0,
-                      child: Icon(Icons.keyboard_arrow_down_rounded,
-                          size: 18, color: context.mutedColor),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          AnimatedSize(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-            alignment: Alignment.topCenter,
-            child: !_expanded
-                ? const SizedBox(width: double.infinity)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: 14),
-
-                      // Note
-                      TextField(
-                        controller: _noteController,
-                        textCapitalization: TextCapitalization.sentences,
-                        style: TextStyle(
-                            color: context.secondaryTextColor, fontSize: 14),
-                        decoration: InputDecoration(
-                          hintText: 'Add a note (optional)',
-                          hintStyle: TextStyle(
-                              color: context.subtleColor, fontSize: 14),
-                          filled: true,
-                          fillColor: context.inputBg,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Category (optional — no default, unlike expense categories)
-                      Text('Category',
-                          style: TextStyle(
-                            color: context.mutedColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          )),
-                      const SizedBox(height: 8),
-                      ListenableBuilder(
-                        listenable: TaskCategoryService.instance,
-                        builder: (context, _) => Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final cat in TaskCategoryService.instance.all)
-                              TaskCategoryChip(
-                                category: cat,
-                                selected: _categoryId == cat.id,
-                                onTap: () => setState(() => _categoryId =
-                                    _categoryId == cat.id ? null : cat.id),
-                              ),
-                            AddTaskCategoryChip(
-                              onTap: () async {
-                                final created =
-                                    await showAddTaskCategoryDialog(context);
-                                if (created != null) {
-                                  setState(() => _categoryId = created.id);
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Reminder
-                      Text('Reminder',
-                          style: TextStyle(
-                            color: context.mutedColor,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          )),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          GestureDetector(
-                            onTap: _pickReminderTime,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 9),
-                              decoration: BoxDecoration(
-                                color: hasReminder
-                                    ? AppColors.primary.withValues(alpha: 0.12)
-                                    : context.inputBg,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: hasReminder
-                                      ? AppColors.primary
-                                      : context.subtleColor,
-                                  width: 1,
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    hasReminder
-                                        ? Icons.notifications_active_rounded
-                                        : Icons.notifications_outlined,
-                                    size: 14,
-                                    color: hasReminder
-                                        ? AppColors.primary
-                                        : context.mutedColor,
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Text(
-                                    hasReminder
-                                        ? TimeOfDay(
-                                                hour: _reminderHour!,
-                                                minute: _reminderMinute!)
-                                            .format(context)
-                                        : 'Remind me',
-                                    style: TextStyle(
-                                      color: hasReminder
-                                          ? AppColors.primary
-                                          : context.mutedColor,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (hasReminder) ...[
-                            const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: _clearReminder,
-                              child: Container(
-                                padding: const EdgeInsets.all(7),
-                                decoration: BoxDecoration(
-                                  color: context.inputBg,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Icon(Icons.close_rounded,
-                                    size: 14, color: context.mutedColor),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-
-                      // Repeat — only meaningful once a schedule date is set,
-                      // since recurrence advances that date.
-                      if (hasDate) ...[
-                        const SizedBox(height: 14),
-                        Text('Repeat',
-                            style: TextStyle(
-                              color: context.mutedColor,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            )),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _RepeatChip(
-                              label: 'Off',
-                              selected: _recurrenceFrequency == null,
-                              onTap: () => _setFrequency(null),
-                            ),
-                            _RepeatChip(
-                              label: 'Daily',
-                              selected: _recurrenceFrequency ==
-                                  RecurrenceFrequency.daily,
-                              onTap: () =>
-                                  _setFrequency(RecurrenceFrequency.daily),
-                            ),
-                            _RepeatChip(
-                              label: 'Weekly',
-                              selected: _recurrenceFrequency ==
-                                  RecurrenceFrequency.weekly,
-                              onTap: () =>
-                                  _setFrequency(RecurrenceFrequency.weekly),
-                            ),
-                            _RepeatChip(
-                              label: 'Monthly',
-                              selected: _recurrenceFrequency ==
-                                  RecurrenceFrequency.monthly,
-                              onTap: () =>
-                                  _setFrequency(RecurrenceFrequency.monthly),
-                            ),
-                            _RepeatChip(
-                              label: 'Yearly',
-                              selected: _recurrenceFrequency ==
-                                  RecurrenceFrequency.yearly,
-                              onTap: () =>
-                                  _setFrequency(RecurrenceFrequency.yearly),
-                            ),
-                          ],
-                        ),
-                        if (_recurrenceFrequency ==
-                            RecurrenceFrequency.weekly) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Leave all off to repeat weekly on the same day as the schedule date.',
-                            style: TextStyle(
-                                color: context.subtleColor, fontSize: 11),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              for (var d = 1; d <= 7; d++)
-                                _WeekdayToggle(
-                                  label: const [
-                                    'M',
-                                    'T',
-                                    'W',
-                                    'T',
-                                    'F',
-                                    'S',
-                                    'S'
-                                  ][d - 1],
-                                  selected: _recurrenceWeekdays.contains(d),
-                                  onTap: () => _toggleWeekday(d),
-                                ),
-                            ],
-                          ),
-                        ],
-                      ],
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 20),
-
-          // Save
-          SizedBox(
-            width: double.infinity,
-            child: GestureDetector(
-              onTap: canSave ? _save : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(vertical: 15),
-                decoration: BoxDecoration(
-                  color: canSave
-                      ? AppColors.primary
-                      : context.subtleColor,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Center(
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white))
-                      : Text(
-                          isEdit ? 'Save changes' : 'Add task',
-                          style: TextStyle(
-                            color: canSave
-                                ? Colors.white
-                                : context.mutedColor,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                ),
-              ),
-            ),
-          ),
-        ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RepeatChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _RepeatChip(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primary.withValues(alpha: 0.12)
-              : context.inputBg,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected ? AppColors.primary : context.subtleColor,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? AppColors.primary : context.mutedColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WeekdayToggle extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _WeekdayToggle(
-      {required this.label, required this.selected, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: selected ? AppColors.primary : context.inputBg,
-          border: Border.all(
-            color: selected ? AppColors.primary : context.subtleColor,
-            width: 1,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : context.mutedColor,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
       ),
     );
   }

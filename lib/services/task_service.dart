@@ -123,6 +123,17 @@ class TaskService {
   /// start (rescheduleAll), not for display.
   Future<List<Task>> getAllTasks() => _loadAll();
 
+  /// A single task by id, or null if it no longer exists — used by the task
+  /// detail screen, including when it's opened from a tapped reminder for a
+  /// task that has since been deleted.
+  Future<Task?> getTaskById(String id) async {
+    final all = await _loadAll();
+    for (final t in all) {
+      if (t.id == id) return t;
+    }
+    return null;
+  }
+
   Future<List<Task>> getCompletedTasks() async {
     final all = await _loadAll();
     return all
