@@ -870,15 +870,21 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     return null;
   }
 
-  Color? _tintColor() {
-    if (widget.task.isCompleted) return null;
-    if (widget.task.isOverdue) {
-      return AppColors.overdueColor.withValues(alpha: 0.05);
-    }
-    if (widget.task.isScheduledToday) {
-      return AppColors.dueTodayColor.withValues(alpha: 0.05);
-    }
-    return null;
+  /// The tile's own surface colour. Any overdue/due-today tint must be
+  /// composited *over* the card colour rather than used on its own — a bare
+  /// 5%-alpha tint left the tile 95% transparent, so the red delete strip
+  /// sitting behind it in the Stack bled through on the right edge and the
+  /// rest of the tile showed the page background instead of the card.
+  Color _surfaceColor(BuildContext context) {
+    final task = widget.task;
+    if (task.isCompleted) return context.cardColor;
+    final Color? tint = task.isOverdue
+        ? AppColors.overdueColor.withValues(alpha: 0.05)
+        : (task.isScheduledToday
+            ? AppColors.dueTodayColor.withValues(alpha: 0.05)
+            : null);
+    if (tint == null) return context.cardColor;
+    return Color.alphaBlend(tint, context.cardColor);
   }
 
   @override
@@ -886,7 +892,7 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     final task = widget.task;
     final isHigh = task.priority == TaskPriority.high;
     final borderColor = _borderColor();
-    final tint = _tintColor();
+    final surface = _surfaceColor(context);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -940,7 +946,7 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                 onHorizontalDragEnd: _handleDragEnd,
                 onLongPress: _onLongPress,
                 child: Material(
-                  color: tint ?? context.cardColor,
+                  color: surface,
                   child: InkWell(
                     onTap: _onTap,
                     splashColor: AppColors.primary.withValues(alpha: 0.05),

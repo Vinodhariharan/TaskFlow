@@ -4,23 +4,68 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/task.dart';
 
+/// A snapshot of everything that decides whether a reminder can actually
+/// fire, so Settings can show it instead of the user guessing why nothing
+/// arrived.
+class NotificationDiagnostics {
+  final bool? notificationsEnabled;
+  final bool? canScheduleExact;
+  final String timeZone;
+  final List<PendingNotificationRequest> pending;
+
+  const NotificationDiagnostics({
+    required this.notificationsEnabled,
+    required this.canScheduleExact,
+    required this.timeZone,
+    required this.pending,
+  });
+}
+
 /// Wraps flutter_local_notifications for task reminders. One scheduled
 /// notification per task at most, keyed by a stable int id derived from the
 /// task's uuid — rescheduled (cancel + re-add) whenever the task's title,
-/// reminder time, or scheduled date changes, and re-armed for every
-/// upcoming reminder on app start (device reboots can clear pending
-/// exact-alarm-based notifications; a boot-time re-registration receiver
-/// would cover that too, but isn't set up here — reopening the app is
-/// enough to catch up in the meantime).
+/// reminder time, or scheduled date changes.
+///
+/// Delivery relies on two things declared in the app's AndroidManifest (not
+/// the plugin's): the ScheduledNotificationReceiver, which turns the fired
+/// alarm into a shown notification, and USE_EXACT_ALARM, without which
+/// Android 14+ downgrades every reminder to a Doze-deferrable inexact alarm.
 class NotificationService {
   NotificationService._();
   static final NotificationService instance = NotificationService._();
 
   static const _channelId = 'task_reminders';
   static const _channelName = 'Task reminders';
+  static const _channelDescription = 'Reminders for tasks you\'ve set a time on';
+
+  /// Fixed ids for the Settings diagnostics, kept well clear of the hashed
+  /// per-task ids so a test can never collide with a real reminder.
+  static const _testNowId = 1;
+  static const _testScheduledId = 2;
+
+  static const _channel = AndroidNotificationChannel(
+    _channelId,
+    _channelName,
+    description: _channelDescription,
+    importance: Importance.high,
+  );
+
+  static const _details = NotificationDetails(
+    android: AndroidNotificationDetails(
+      _channelId,
+      _channelName,
+      channelDescription: _channelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+    ),
+  );
 
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+
+  AndroidFlutterLocalNotificationsPlugin? get _android =>
+      _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
 
   int _idFor(String taskId) => taskId.hashCode & 0x7fffffff;
 
@@ -32,26 +77,34 @@ class NotificationService {
       tz.setLocalLocation(tz.getLocation(info.identifier));
     } catch (_) {
       // Fall back to whatever the default location already is (UTC) rather
-      // than crashing startup over a timezone lookup failure.
+      // than crashing startup over a timezone lookup failure. Scheduling
+      // still uses the correct absolute instant either way.
     }
     await _plugin.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
     );
+    // Create the channel explicitly rather than relying on it being created
+    // lazily at first show — otherwise its importance (and so whether it
+    // makes a sound / appears as a heads-up) is whatever the first
+    // notification happened to ask for.
+    try {
+      await _android?.createNotificationChannel(_channel);
+    } catch (_) {
+      // Pre-Android-8 has no channels; nothing to do.
+    }
     _initialized = true;
   }
 
-  /// Requests the Android 13+ notification permission and, separately, the
-  /// exact-alarm permission (which opens a system settings screen if not
-  /// already granted). Call this the first time a user turns a reminder on,
-  /// not unconditionally at startup. Swallows failures — a denied or
-  /// unavailable permission request should never block the caller (e.g. the
-  /// Add Task sheet) from continuing.
+  /// Requests the Android 13+ notification permission, and the exact-alarm
+  /// permission if it somehow isn't already held. Safe to call repeatedly —
+  /// Android only shows each prompt once. Swallows failures so a denied or
+  /// unavailable request never blocks the caller.
   Future<void> requestPermissions() async {
     try {
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
+      await init();
+      final android = _android;
       if (android == null) return;
       await android.requestNotificationsPermission();
       final canExact = await android.canScheduleExactNotifications() ?? false;
@@ -69,16 +122,16 @@ class NotificationService {
     final now = DateTime.now();
     if (task.scheduledDate != null) {
       final base = task.scheduledDate!;
-      final moment = DateTime(
-          base.year, base.month, base.day, task.reminderHour!, task.reminderMinute!);
+      final moment = DateTime(base.year, base.month, base.day,
+          task.reminderHour!, task.reminderMinute!);
       return moment.isAfter(now) ? moment : null;
     }
     // No scheduled date: the reminder is implicitly "today at this time".
     // If that moment has already passed today, roll it to tomorrow instead
     // of silently scheduling nothing — picking a time earlier than now
     // otherwise looks identical to a reminder that was never set at all.
-    var moment =
-        DateTime(now.year, now.month, now.day, task.reminderHour!, task.reminderMinute!);
+    var moment = DateTime(
+        now.year, now.month, now.day, task.reminderHour!, task.reminderMinute!);
     if (!moment.isAfter(now)) {
       moment = moment.add(const Duration(days: 1));
     }
@@ -88,20 +141,18 @@ class NotificationService {
   /// Cancels any existing notification for [task], then schedules a fresh
   /// one if it currently has a reminder set for a moment still in the
   /// future. Safe to call after any edit — it's always cancel-then-add.
-  /// Failures (denied permissions, plugin/platform errors) are swallowed so
-  /// a broken reminder never blocks saving the task itself.
+  /// Failures are swallowed so a broken reminder never blocks saving the
+  /// task itself.
   Future<void> scheduleForTask(Task task) async {
     try {
-      if (!_initialized) await init();
+      await init();
       final id = _idFor(task.id);
       await _plugin.cancel(id);
       if (task.isCompleted) return;
       final moment = _nextReminderMoment(task);
       if (moment == null) return;
 
-      final android = _plugin.resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>();
-      final canExact = await android?.canScheduleExactNotifications() ?? false;
+      final canExact = await _android?.canScheduleExactNotifications() ?? false;
 
       await _plugin.zonedSchedule(
         id,
@@ -110,15 +161,7 @@ class NotificationService {
             ? task.note
             : 'Task reminder',
         tz.TZDateTime.from(moment, tz.local),
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _channelId,
-            _channelName,
-            channelDescription: 'Reminders for tasks you\'ve set a time on',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-        ),
+        _details,
         androidScheduleMode: canExact
             ? AndroidScheduleMode.exactAllowWhileIdle
             : AndroidScheduleMode.inexactAllowWhileIdle,
@@ -133,7 +176,7 @@ class NotificationService {
 
   Future<void> cancelForTask(String taskId) async {
     try {
-      if (!_initialized) await init();
+      await init();
       await _plugin.cancel(_idFor(taskId));
     } catch (_) {
       // Best-effort — nothing useful to do if cancellation fails.
@@ -141,13 +184,63 @@ class NotificationService {
   }
 
   /// Re-schedules every upcoming reminder from scratch — call once on app
-  /// start so reminders catch up after a device reboot or reinstall.
+  /// start so reminders catch up after a reinstall or a permission finally
+  /// being granted.
   Future<void> rescheduleAll(List<Task> tasks) async {
-    if (!_initialized) await init();
+    await init();
     for (final task in tasks) {
       if (task.hasReminder && !task.isCompleted) {
         await scheduleForTask(task);
       }
     }
+  }
+
+  // ── Diagnostics (Settings > Notifications) ────────────────────────────────
+
+  Future<NotificationDiagnostics> diagnostics() async {
+    await init();
+    final android = _android;
+    return NotificationDiagnostics(
+      notificationsEnabled: await android?.areNotificationsEnabled(),
+      canScheduleExact: await android?.canScheduleExactNotifications(),
+      timeZone: tz.local.name,
+      pending: await _plugin.pendingNotificationRequests(),
+    );
+  }
+
+  /// Shows a notification immediately. Deliberately does NOT swallow errors —
+  /// this exists to surface what's wrong, so the caller can display it.
+  Future<void> showTestNotification() async {
+    await init();
+    await _plugin.show(
+      _testNowId,
+      'TaskFlow test',
+      'Notifications are working. Scheduled reminders are separate — use the timed test for those.',
+      _details,
+    );
+  }
+
+  /// Schedules a notification a short delay out, through the exact same
+  /// path a real reminder uses, and reports back when it should arrive and
+  /// whether it got an exact alarm.
+  Future<({DateTime at, bool exact})> scheduleTestNotification({
+    Duration delay = const Duration(minutes: 1),
+  }) async {
+    await init();
+    final when = DateTime.now().add(delay);
+    final canExact = await _android?.canScheduleExactNotifications() ?? false;
+    await _plugin.zonedSchedule(
+      _testScheduledId,
+      'TaskFlow scheduled test',
+      'This is what a task reminder will look like.',
+      tz.TZDateTime.from(when, tz.local),
+      _details,
+      androidScheduleMode: canExact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+    );
+    return (at: when, exact: canExact);
   }
 }

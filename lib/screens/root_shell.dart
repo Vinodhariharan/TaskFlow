@@ -44,9 +44,13 @@ class _RootShellState extends State<RootShell> {
     _settingsService.getDefaultTab().then((tab) {
       if (mounted && tab != _primary) setState(() => _primary = tab);
     });
-    // Re-arm every upcoming task reminder on app start — covers device
-    // reboots or reinstalls clearing previously scheduled alarms.
+    // Ask for notification permission up front rather than only when a
+    // reminder is first set — a reminder scheduled while permission is
+    // still denied fires into nothing. Then re-arm every upcoming reminder,
+    // which also catches up anything scheduled before permission was
+    // granted, or lost to a reinstall.
     NotificationService.instance.init().then((_) async {
+      await NotificationService.instance.requestPermissions();
       final tasks = await TaskService().getAllTasks();
       await NotificationService.instance.rescheduleAll(tasks);
     });

@@ -1,6 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- For scheduled task-reminder notifications (flutter_local_notifications). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- SCHEDULE_EXACT_ALARM is denied by default on Android 14+ for apps that
+         aren't alarm/calendar apps, which silently downgraded every reminder to
+         an inexact alarm — those get deferred by Doze, often long past the time
+         the user picked, which reads as "reminders don't work". USE_EXACT_ALARM
+         is auto-granted with no prompt (requires targetSdk >= 33) and is the
+         permission intended for user-set alarm/reminder times. Both are kept:
+         USE_EXACT_ALARM covers Android 13+, SCHEDULE_EXACT_ALARM covers 12. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application

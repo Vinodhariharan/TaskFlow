@@ -4,6 +4,7 @@ import '../services/currency_settings.dart';
 import '../services/expense_service.dart';
 import '../services/settings_service.dart';
 import 'category_management_screen.dart';
+import 'notification_diagnostics_screen.dart';
 import 'expense_widgets.dart';
 import 'export_expenses_screen.dart';
 import 'import_expenses_screen.dart';
@@ -180,6 +181,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => const TaskCategoryManagementScreen(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            _SectionLabel('NOTIFICATIONS'),
+            _SettingsCard(
+              children: [
+                _SettingsRow(
+                  icon: Icons.notifications_active_outlined,
+                  title: 'Reminder diagnostics',
+                  subtitle: 'Check permissions and send a test reminder',
+                  trailing: Icon(Icons.chevron_right_rounded,
+                      color: context.mutedColor, size: 20),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const NotificationDiagnosticsScreen(),
                     ),
                   ),
                 ),
