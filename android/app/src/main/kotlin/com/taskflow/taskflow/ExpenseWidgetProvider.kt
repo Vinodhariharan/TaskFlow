@@ -33,7 +33,18 @@ class ExpenseWidgetProvider : HomeWidgetProvider() {
                         ?: "Open TaskFlow",
                 )
 
-                // Tapping anywhere opens the app on the Expenses tab.
+                // "+" opens the app's add-expense sheet — a widget can't
+                // take an amount as input, so it hands over to the app.
+                setOnClickPendingIntent(
+                    R.id.expense_add,
+                    HomeWidgetLaunchIntent.getActivity(
+                        context,
+                        MainActivity::class.java,
+                        Uri.parse("taskflow://addexpense"),
+                    ),
+                )
+
+                // Tapping anywhere else opens the app on the Expenses tab.
                 setOnClickPendingIntent(
                     R.id.expense_widget_root,
                     HomeWidgetLaunchIntent.getActivity(

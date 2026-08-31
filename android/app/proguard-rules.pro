@@ -41,3 +41,13 @@
 # JSON, including a RuntimeTypeAdapterFactory over its model classes, so those
 # models must keep their names and members to round-trip.
 -keep class com.dexterous.** { *; }
+
+# home_widget: WorkManager instantiates HomeWidgetBackgroundWorker reflectively
+# from a class name it stored, and the widget providers reach the plugin's
+# helper classes the same way. R8 has no static reference to follow for the
+# worker, so without this the widget tick buttons would fail in release builds
+# only — the same shape of bug as the Gson/TypeToken one above.
+-keep class es.antonborri.home_widget.** { *; }
+
+# androidx.work looks its workers up by name too.
+-keep class * extends androidx.work.ListenableWorker { *; }

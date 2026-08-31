@@ -2,4 +2,8 @@
 <resources>
     <string name="task_widget_description">Today\'s outstanding tasks</string>
     <string name="expense_widget_description">Spending so far this month</string>
+    <string name="quick_add_widget_description">Shortcuts to add a task or an expense</string>
+    <string name="add_task_action">Add task</string>
+    <string name="add_expense_action">Add expense</string>
+    <string name="complete_task_action">Mark task complete</string>
 </resources>

@@ -72,6 +72,29 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/expense_widget_info" />
         </receiver>
+        <receiver
+            android:name=".QuickAddWidgetProvider"
+            android:exported="true"
+            android:label="TaskFlow Quick Add">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_add_widget_info" />
+        </receiver>
+
+        <!-- Receives the "tick this task off" broadcast from the Tasks widget
+             and hands it to a background Dart isolate. home_widget ships this
+             class but declares nothing in its own manifest, so without this
+             entry the tick buttons would do nothing at all. -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
 
         <receiver android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />

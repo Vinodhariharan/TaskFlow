@@ -4,6 +4,33 @@ import 'currency_settings.dart';
 import 'expense_service.dart';
 import 'task_service.dart';
 
+/// Handles a widget button press that must NOT open the app — currently just
+/// ticking a task off from the Tasks widget.
+///
+/// This runs in a separate background isolate that home_widget spins up, so
+/// it can only rely on plugins (SharedPreferences works; anything UI-bound
+/// does not). It deliberately goes through the same TaskService the app uses
+/// rather than touching stored JSON directly, so completion keeps all its
+/// real behaviour — including rolling a recurring task forward to its next
+/// occurrence instead of just checking it off.
+///
+/// Must stay a top-level function with the vm:entry-point pragma: it's looked
+/// up by callback handle at runtime, so nothing references it statically and
+/// tree shaking would otherwise drop it from release builds.
+@pragma('vm:entry-point')
+Future<void> widgetInteractionCallback(Uri? uri) async {
+  if (uri == null) return;
+  final id = uri.queryParameters['id'];
+  switch (uri.host) {
+    case 'toggle':
+      if (id == null || id.isEmpty) return;
+      await TaskService().toggleComplete(id);
+      // Re-render straight away so the row disappears under the finger
+      // rather than waiting for the app to next open.
+      await WidgetService.instance.refresh();
+  }
+}
+
 /// Pushes a small summary of tasks and spending into the two Android home
 /// screen widgets.
 ///
@@ -71,6 +98,12 @@ class WidgetService {
       await HomeWidget.saveWidgetData<String>(
         'task_$i',
         i < pending.length ? pending[i].title : '',
+      );
+      // The id behind each row, so its tick button and its "open this task"
+      // tap can both address the right task.
+      await HomeWidget.saveWidgetData<String>(
+        'task_${i}_id',
+        i < pending.length ? pending[i].id : '',
       );
     }
 

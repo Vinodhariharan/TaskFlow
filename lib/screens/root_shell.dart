@@ -7,14 +7,17 @@ import '../main.dart';
 import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_change_notifier.dart';
+import '../services/expense_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_change_notifier.dart';
 import '../services/task_service.dart';
 import '../services/widget_service.dart';
+import 'add_edit_expense_sheet.dart';
 import 'expenses_home_tab.dart';
 import 'settings_screen.dart';
 import 'task_detail_screen.dart';
+import 'task_form_screen.dart';
 
 /// Top-level shell that switches between the unmodified TaskFlow task list
 /// and the new Expenses tab via a segmented pill at the top of the screen,
@@ -73,6 +76,9 @@ class _RootShellState extends State<RootShell> {
     // Keep the home screen widgets current: refresh once on start, then on
     // every task or expense change from anywhere in the app.
     WidgetService.instance.refresh();
+    // Lets the Tasks widget's tick buttons run Dart in the background,
+    // without opening the app.
+    HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
     TaskChangeNotifier.instance.addListener(_refreshWidgets);
     ExpenseChangeNotifier.instance.addListener(_refreshWidgets);
 
@@ -95,25 +101,50 @@ class _RootShellState extends State<RootShell> {
 
   void _refreshWidgets() => WidgetService.instance.refresh();
 
-  /// Switches to the tab a tapped widget belongs to. The URIs are set in the
-  /// widget providers (taskflow://tasks, taskflow://expenses); anything else
-  /// just opens the app wherever it would normally land.
+  /// Acts on a tapped widget. The URIs are set in the widget providers;
+  /// anything unrecognised just opens the app wherever it would normally
+  /// land. Everything here is deferred to after the first frame — on a cold
+  /// launch the PageView isn't laid out and there's no Navigator to push on
+  /// yet.
   void _handleWidgetUri(Uri? uri) {
     if (uri == null || !mounted) return;
-    final screenId = switch (uri.host) {
-      'tasks' => 0,
-      'expenses' => 1,
-      _ => null,
-    };
-    if (screenId == null) return;
-    final pageIndex = _screenOrder.indexOf(screenId);
-    if (pageIndex < 0) return;
-    // The controller has no clients until the PageView is laid out, which
-    // isn't the case yet on a cold launch.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_pageController.hasClients) return;
-      _goToPage(pageIndex);
+    final host = uri.host;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      switch (host) {
+        case 'tasks':
+        case 'expenses':
+          _showScreen(host == 'tasks' ? 0 : 1);
+        case 'task':
+          final id = uri.queryParameters['id'];
+          if (id != null && id.isNotEmpty) _openTask(id);
+        case 'addtask':
+          _showScreen(0);
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => TaskFormScreen(taskService: TaskService()),
+            ),
+          );
+        case 'addexpense':
+          _showScreen(1);
+          if (!mounted) return;
+          await showModalBottomSheet<void>(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) =>
+                AddEditExpenseSheet(expenseService: ExpenseService()),
+          );
+      }
     });
+  }
+
+  /// Jumps to a screen by identity (0 = Tasks, 1 = Expenses), translating
+  /// through whichever order the "primary tab" setting put them in.
+  void _showScreen(int screenId) {
+    final pageIndex = _screenOrder.indexOf(screenId);
+    if (pageIndex < 0 || !_pageController.hasClients) return;
+    _goToPage(pageIndex);
   }
 
   /// Opens a task's detail page from a tapped reminder. Uses the shell's own
