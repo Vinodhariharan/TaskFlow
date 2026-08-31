@@ -1,11 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:home_widget/home_widget.dart';
 import '../main.dart';
 import '../services/category_service.dart';
 import '../services/currency_settings.dart';
+import '../services/expense_change_notifier.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
+import '../services/task_change_notifier.dart';
 import '../services/task_service.dart';
+import '../services/widget_service.dart';
 import 'expenses_home_tab.dart';
 import 'settings_screen.dart';
 import 'task_detail_screen.dart';
@@ -31,6 +37,7 @@ class _RootShellState extends State<RootShell> {
   int _page = 0;
   late final PageController _pageController;
   final _settingsService = SettingsService();
+  StreamSubscription<Uri?>? _widgetClickSub;
 
   /// Screen identities (0 = Tasks, 1 = Expenses) in left-to-right / page
   /// order — index 0 is whichever is primary.
@@ -62,6 +69,16 @@ class _RootShellState extends State<RootShell> {
       final pending = await NotificationService.instance.consumePendingTap();
       if (pending != null) _openTask(pending);
     });
+
+    // Keep the home screen widgets current: refresh once on start, then on
+    // every task or expense change from anywhere in the app.
+    WidgetService.instance.refresh();
+    TaskChangeNotifier.instance.addListener(_refreshWidgets);
+    ExpenseChangeNotifier.instance.addListener(_refreshWidgets);
+
+    // Opening the app from a widget lands on that widget's tab.
+    _widgetClickSub = HomeWidget.widgetClicked.listen(_handleWidgetUri);
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(_handleWidgetUri);
   }
 
   @override
@@ -69,8 +86,34 @@ class _RootShellState extends State<RootShell> {
     if (NotificationService.instance.onReminderTapped == _openTask) {
       NotificationService.instance.onReminderTapped = null;
     }
+    TaskChangeNotifier.instance.removeListener(_refreshWidgets);
+    ExpenseChangeNotifier.instance.removeListener(_refreshWidgets);
+    _widgetClickSub?.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  void _refreshWidgets() => WidgetService.instance.refresh();
+
+  /// Switches to the tab a tapped widget belongs to. The URIs are set in the
+  /// widget providers (taskflow://tasks, taskflow://expenses); anything else
+  /// just opens the app wherever it would normally land.
+  void _handleWidgetUri(Uri? uri) {
+    if (uri == null || !mounted) return;
+    final screenId = switch (uri.host) {
+      'tasks' => 0,
+      'expenses' => 1,
+      _ => null,
+    };
+    if (screenId == null) return;
+    final pageIndex = _screenOrder.indexOf(screenId);
+    if (pageIndex < 0) return;
+    // The controller has no clients until the PageView is laid out, which
+    // isn't the case yet on a cold launch.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_pageController.hasClients) return;
+      _goToPage(pageIndex);
+    });
   }
 
   /// Opens a task's detail page from a tapped reminder. Uses the shell's own

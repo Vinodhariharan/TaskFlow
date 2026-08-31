@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#0E0E10</color>
+
+    <!-- Home screen widget palette, mirroring AppColors in lib/main.dart. -->
+    <color name="widget_surface">#1A1A1F</color>
+    <color name="widget_text">#E8E8F0</color>
+    <color name="widget_secondary_text">#9090A8</color>
+    <color name="widget_muted">#555568</color>
+    <color name="widget_primary">#6C63FF</color>
 </resources>

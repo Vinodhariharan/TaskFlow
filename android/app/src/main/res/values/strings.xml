@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="task_widget_description">Today\'s outstanding tasks</string>
+    <string name="expense_widget_description">Spending so far this month</string>
+</resources>
