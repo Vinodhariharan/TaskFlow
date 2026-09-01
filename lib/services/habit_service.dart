@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../models/habit.dart';
 import '../models/habit_stats.dart';
 import 'habit_change_notifier.dart';
+import 'notification_service.dart';
 
 /// Storage for habits and their per-day completion log.
 ///
@@ -122,6 +123,7 @@ class HabitService {
     habits.add(habit);
     await _saveAll(habits);
     HabitChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.scheduleForHabit(habit);
     return habit;
   }
 
@@ -132,6 +134,10 @@ class HabitService {
     habits[idx] = updated;
     await _saveAll(habits);
     HabitChangeNotifier.instance.notifyChanged();
+    // Always reschedule rather than diffing: the reminder time, the active
+    // days and the archived flag all change what should be armed, and
+    // scheduleForHabit is cancel-then-add anyway.
+    await NotificationService.instance.scheduleForHabit(updated);
   }
 
   /// Hides a habit from the daily list while keeping every logged day, so
@@ -152,6 +158,7 @@ class HabitService {
     logs.remove(id);
     await _saveLogs(logs);
     HabitChangeNotifier.instance.notifyChanged();
+    await NotificationService.instance.cancelForHabit(id);
   }
 
   // ── Log ────────────────────────────────────────────────────────────────

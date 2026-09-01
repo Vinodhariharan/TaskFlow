@@ -2,6 +2,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+import '../models/habit.dart';
 import '../models/task.dart';
 
 /// A snapshot of everything that decides whether a reminder can actually
@@ -123,6 +124,17 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin>();
 
   int _idFor(String taskId) => taskId.hashCode & 0x7fffffff;
+
+  /// Habit notification ids live in their own namespace, derived from a
+  /// prefixed string so a habit and a task can never land on the same id
+  /// even if their uuids somehow collided.
+  ///
+  /// The low three bits are reserved for the weekday, because a habit
+  /// scheduled on specific days needs one repeating notification per day
+  /// (Android repeats weekly on a given weekday, or daily, but can't express
+  /// "Mon/Wed/Fri" in a single alarm). Weekday 0 means the daily case.
+  int _idForHabit(String habitId, {int weekday = 0}) =>
+      (('habit:$habitId'.hashCode & 0x7ffffff8)) + (weekday & 0x7);
 
   Future<void> init() async {
     if (_initialized) return;
@@ -256,6 +268,113 @@ class NotificationService {
         await scheduleForTask(task);
       }
     }
+  }
+
+  // ── Habit reminders ───────────────────────────────────────────────────────
+
+  /// Habit reminders repeat rather than firing once, which is the whole
+  /// difference from a task: a task's reminder is for a specific date, a
+  /// habit's is "every day at 7am" (or every Mon/Wed/Fri).
+  ///
+  /// Android can express "daily at a time" or "weekly on a weekday at a
+  /// time", but not an arbitrary set of days, so a habit on specific days
+  /// gets one repeating notification per day. Always cancel-then-add, so
+  /// editing a habit's days never leaves an orphaned alarm behind.
+  Future<void> scheduleForHabit(Habit habit) async {
+    try {
+      await init();
+      await cancelForHabit(habit.id);
+      if (habit.archived || !habit.hasReminder) return;
+
+      final canExact = await _android?.canScheduleExactNotifications() ?? false;
+      final mode = canExact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle;
+      final body = habit.targetCount > 1
+          ? 'Time for ${habit.name} — ${habit.targetCount}× today'
+          : 'Time for ${habit.name}';
+
+      if (habit.activeWeekdays.isEmpty) {
+        await _plugin.zonedSchedule(
+          _idForHabit(habit.id),
+          habit.name,
+          body,
+          _nextInstanceOf(habit.reminderHour!, habit.reminderMinute!),
+          _details,
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.time,
+          payload: 'habit:${habit.id}',
+        );
+        return;
+      }
+
+      for (final weekday in habit.activeWeekdays) {
+        await _plugin.zonedSchedule(
+          _idForHabit(habit.id, weekday: weekday),
+          habit.name,
+          body,
+          _nextInstanceOfWeekday(
+              weekday, habit.reminderHour!, habit.reminderMinute!),
+          _details,
+          androidScheduleMode: mode,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
+          matchDateTimeComponents: DateTimeComponents.dayOfWeekAndTime,
+          payload: 'habit:${habit.id}',
+        );
+      }
+      _lastScheduleError = null;
+    } catch (e) {
+      // As with tasks: a reminder that won't schedule must never stop the
+      // habit itself from being saved.
+      _lastScheduleError = e.toString();
+    }
+  }
+
+  /// Clears the daily alarm and all seven possible weekday alarms, so a
+  /// habit that switched from Mon/Wed/Fri to daily leaves nothing stale.
+  Future<void> cancelForHabit(String habitId) async {
+    try {
+      await init();
+      await _plugin.cancel(_idForHabit(habitId));
+      for (var weekday = 1; weekday <= 7; weekday++) {
+        await _plugin.cancel(_idForHabit(habitId, weekday: weekday));
+      }
+    } catch (e) {
+      _lastScheduleError = e.toString();
+    }
+  }
+
+  Future<void> rescheduleAllHabits(List<Habit> habits) async {
+    await init();
+    for (final habit in habits) {
+      if (habit.hasReminder && !habit.archived) {
+        await scheduleForHabit(habit);
+      }
+    }
+  }
+
+  /// The next time today's clock hits [hour]:[minute], rolling to tomorrow
+  /// if it's already gone.
+  tz.TZDateTime _nextInstanceOf(int hour, int minute) {
+    final now = tz.TZDateTime.now(tz.local);
+    var next =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
+    if (!next.isAfter(now)) {
+      next = next.add(const Duration(days: 1));
+    }
+    return next;
+  }
+
+  /// The next [weekday] (1 = Monday .. 7 = Sunday) at [hour]:[minute].
+  tz.TZDateTime _nextInstanceOfWeekday(int weekday, int hour, int minute) {
+    var next = _nextInstanceOf(hour, minute);
+    while (next.weekday != weekday) {
+      next = next.add(const Duration(days: 1));
+    }
+    return next;
   }
 
   // ── Diagnostics (Settings > Notifications) ────────────────────────────────

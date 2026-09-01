@@ -8,6 +8,7 @@ import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
+import '../services/habit_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_change_notifier.dart';
@@ -15,13 +16,15 @@ import '../services/task_service.dart';
 import '../services/widget_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'expenses_home_tab.dart';
+import 'habit_detail_screen.dart';
+import 'habits_home_tab.dart';
 import 'settings_screen.dart';
 import 'task_detail_screen.dart';
 import 'task_form_screen.dart';
 
-/// Top-level shell that switches between the unmodified TaskFlow task list
-/// and the new Expenses tab via a segmented pill at the top of the screen,
-/// or by swiping left/right on the content itself.
+/// Top-level shell that switches between the Tasks, Expenses and Habits
+/// screens via a segmented pill at the top, or by swiping left/right on the
+/// content itself.
 class RootShell extends StatefulWidget {
   final ThemeNotifier notifier;
   const RootShell({super.key, required this.notifier});
@@ -30,21 +33,35 @@ class RootShell extends StatefulWidget {
   State<RootShell> createState() => _RootShellState();
 }
 
+/// The screens the shell can show, in their natural order. Identities are
+/// stable (they're persisted as the "default start tab" setting), so new
+/// screens must be appended rather than inserted.
+const int kTasksScreen = 0;
+const int kExpensesScreen = 1;
+const int kHabitsScreen = 2;
+const List<int> kAllScreens = [kTasksScreen, kExpensesScreen, kHabitsScreen];
+
+String screenLabel(int screenId) => switch (screenId) {
+      kTasksScreen => 'Tasks',
+      kExpensesScreen => 'Expenses',
+      _ => 'Habits',
+    };
+
 class _RootShellState extends State<RootShell> {
-  // Which screen (0 = Tasks, 1 = Expenses) is "primary" — shown on the left
-  // of the toggle, and the one the app opens on. Backed by the same
-  // Settings > "default start tab" choice; default is Tasks.
-  int _primary = 0;
-  // Current PageView page (0 or 1) — a position, not a screen identity: the
-  // screen it maps to depends on _primary via _screenOrder.
+  // Which screen is "primary" — shown leftmost on the toggle, and the one
+  // the app opens on. Backed by the Settings > "default start tab" choice.
+  int _primary = kTasksScreen;
+  // Current PageView page — a position, not a screen identity: the screen it
+  // maps to depends on _primary via _screenOrder.
   int _page = 0;
   late final PageController _pageController;
   final _settingsService = SettingsService();
   StreamSubscription<Uri?>? _widgetClickSub;
 
-  /// Screen identities (0 = Tasks, 1 = Expenses) in left-to-right / page
-  /// order — index 0 is whichever is primary.
-  List<int> get _screenOrder => _primary == 0 ? const [0, 1] : const [1, 0];
+  /// Screen identities in left-to-right / page order: the primary one first,
+  /// then the rest in their natural order.
+  List<int> get _screenOrder =>
+      [_primary, ...kAllScreens.where((id) => id != _primary)];
 
   @override
   void initState() {
@@ -62,7 +79,7 @@ class _RootShellState extends State<RootShell> {
     // granted, or lost to a reinstall.
     // Tapping a reminder opens that task's page. Wired before init() finishes
     // so a tap arriving mid-startup is handled rather than dropped.
-    NotificationService.instance.onReminderTapped = _openTask;
+    NotificationService.instance.onReminderTapped = _openReminder;
     NotificationService.instance.init().then((_) async {
       await NotificationService.instance.requestPermissions();
       final tasks = await TaskService().getAllTasks();
@@ -70,7 +87,12 @@ class _RootShellState extends State<RootShell> {
       // A reminder tapped while the app wasn't running launches it here
       // instead of going through onReminderTapped.
       final pending = await NotificationService.instance.consumePendingTap();
-      if (pending != null) _openTask(pending);
+      if (pending != null) _openReminder(pending);
+      // Habit reminders repeat, but Android drops pending alarms on reboot
+      // and a newly-granted permission doesn't retroactively arm anything,
+      // so re-arm them alongside the task ones.
+      await NotificationService.instance
+          .rescheduleAllHabits(await HabitService().getHabits());
     });
 
     // Keep the home screen widgets current: refresh once on start, then on
@@ -89,7 +111,7 @@ class _RootShellState extends State<RootShell> {
 
   @override
   void dispose() {
-    if (NotificationService.instance.onReminderTapped == _openTask) {
+    if (NotificationService.instance.onReminderTapped == _openReminder) {
       NotificationService.instance.onReminderTapped = null;
     }
     TaskChangeNotifier.instance.removeListener(_refreshWidgets);
@@ -114,19 +136,21 @@ class _RootShellState extends State<RootShell> {
       switch (host) {
         case 'tasks':
         case 'expenses':
-          _showScreen(host == 'tasks' ? 0 : 1);
+          _showScreen(host == 'tasks' ? kTasksScreen : kExpensesScreen);
         case 'task':
           final id = uri.queryParameters['id'];
           if (id != null && id.isNotEmpty) _openTask(id);
+        case 'habits':
+          _showScreen(kHabitsScreen);
         case 'addtask':
-          _showScreen(0);
+          _showScreen(kTasksScreen);
           await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => TaskFormScreen(taskService: TaskService()),
             ),
           );
         case 'addexpense':
-          _showScreen(1);
+          _showScreen(kExpensesScreen);
           if (!mounted) return;
           await showModalBottomSheet<void>(
             context: context,
@@ -139,16 +163,33 @@ class _RootShellState extends State<RootShell> {
     });
   }
 
-  /// Jumps to a screen by identity (0 = Tasks, 1 = Expenses), translating
-  /// through whichever order the "primary tab" setting put them in.
+  /// Jumps to a screen by identity, translating through whichever order the
+  /// "primary tab" setting put them in.
   void _showScreen(int screenId) {
     final pageIndex = _screenOrder.indexOf(screenId);
     if (pageIndex < 0 || !_pageController.hasClients) return;
     _goToPage(pageIndex);
   }
 
-  /// Opens a task's detail page from a tapped reminder. Uses the shell's own
-  /// context so it works whatever is currently on screen.
+  /// Routes a tapped reminder to whatever it belongs to. Habit reminders
+  /// carry a "habit:" prefix in their payload; anything else is a bare task
+  /// id, which is what task reminders have always sent.
+  void _openReminder(String payload) {
+    if (!mounted) return;
+    const habitPrefix = 'habit:';
+    if (payload.startsWith(habitPrefix)) {
+      final id = payload.substring(habitPrefix.length);
+      if (id.isEmpty) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => HabitDetailScreen(habitId: id)),
+      );
+      return;
+    }
+    _openTask(payload);
+  }
+
+  /// Opens a task's detail page. Uses the shell's own context so it works
+  /// whatever is currently on screen.
   void _openTask(String taskId) {
     if (!mounted) return;
     Navigator.of(context).push(
@@ -218,9 +259,11 @@ class _RootShellState extends State<RootShell> {
                 onPageChanged: (i) => setState(() => _page = i),
                 children: [
                   for (final screenId in order)
-                    screenId == 0
-                        ? HomeScreen(notifier: widget.notifier)
-                        : const ExpensesHomeTab(),
+                    switch (screenId) {
+                      kTasksScreen => HomeScreen(notifier: widget.notifier),
+                      kExpensesScreen => const ExpensesHomeTab(),
+                      _ => const HabitsHomeTab(),
+                    },
                 ],
               ),
             ),
@@ -232,7 +275,7 @@ class _RootShellState extends State<RootShell> {
 }
 
 class _TopTabBar extends StatelessWidget {
-  /// Screen identities (0 = Tasks, 1 = Expenses) in left-to-right order.
+  /// Screen identities in left-to-right order.
   final List<int> order;
   final int current;
   final ValueChanged<int> onChanged;
@@ -253,7 +296,7 @@ class _TopTabBar extends StatelessWidget {
             Expanded(
               child: _segment(
                 context,
-                order[pageIndex] == 0 ? 'Tasks' : 'Expenses',
+                screenLabel(order[pageIndex]),
                 pageIndex,
               ),
             ),

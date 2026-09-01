@@ -134,6 +134,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : null,
                   onTap: () => _setDefaultTab(1),
                 ),
+                _Divider(),
+                _SettingsRow(
+                  icon: Icons.self_improvement_rounded,
+                  title: 'Habits',
+                  subtitle: 'Opens at launch and sits on the left of the toggle',
+                  trailing: _defaultTab == 2
+                      ? const Icon(Icons.check_rounded,
+                          color: AppColors.primary, size: 20)
+                      : null,
+                  onTap: () => _setDefaultTab(2),
+                ),
               ],
             ),
             const SizedBox(height: 20),

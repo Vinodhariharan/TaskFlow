@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Which tab the app opens to on launch: 0 = Tasks, 1 = Expenses.
+/// Which tab the app opens to on launch: 0 = Tasks, 1 = Expenses,
+/// 2 = Habits. Values are persisted, so identities must stay stable.
 class SettingsService {
   static const _defaultTabKey = 'default_start_tab';
 
