@@ -8,6 +8,7 @@ import '../services/category_service.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
+import '../services/habit_change_notifier.dart';
 import '../services/habit_service.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
@@ -103,6 +104,7 @@ class _RootShellState extends State<RootShell> {
     HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
     TaskChangeNotifier.instance.addListener(_refreshWidgets);
     ExpenseChangeNotifier.instance.addListener(_refreshWidgets);
+    HabitChangeNotifier.instance.addListener(_refreshWidgets);
 
     // Opening the app from a widget lands on that widget's tab.
     _widgetClickSub = HomeWidget.widgetClicked.listen(_handleWidgetUri);
@@ -116,6 +118,7 @@ class _RootShellState extends State<RootShell> {
     }
     TaskChangeNotifier.instance.removeListener(_refreshWidgets);
     ExpenseChangeNotifier.instance.removeListener(_refreshWidgets);
+    HabitChangeNotifier.instance.removeListener(_refreshWidgets);
     _widgetClickSub?.cancel();
     _pageController.dispose();
     super.dispose();
@@ -142,6 +145,16 @@ class _RootShellState extends State<RootShell> {
           if (id != null && id.isNotEmpty) _openTask(id);
         case 'habits':
           _showScreen(kHabitsScreen);
+        case 'habitdetail':
+          final habitId = uri.queryParameters['id'];
+          if (habitId != null && habitId.isNotEmpty) {
+            _showScreen(kHabitsScreen);
+            await Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => HabitDetailScreen(habitId: habitId),
+              ),
+            );
+          }
         case 'addtask':
           _showScreen(kTasksScreen);
           await Navigator.of(context).push(

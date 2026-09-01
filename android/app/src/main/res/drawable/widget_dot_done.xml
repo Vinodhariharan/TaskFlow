@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A completed day in the habit widget's week strip. Drawn white and tinted
+     at runtime with the habit's own colour, so one drawable serves all ten
+     colour choices. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FFFFFFFF" />
+    <size android:width="12dp" android:height="12dp" />
+</shape>

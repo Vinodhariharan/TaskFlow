@@ -48,8 +48,9 @@
              own manifest in this version, so without this block every zonedSchedule
              call silently no-ops at the OS level — it "succeeds" with no exception,
              but nothing ever fires. -->
-        <!-- Home screen widgets. Both are rendered from strings that Dart
-             writes via home_widget, so they carry no logic of their own. -->
+        <!-- Home screen widgets. Every one of them is rendered from strings
+             that Dart writes via home_widget, so they carry no logic of their
+             own. -->
         <receiver
             android:name=".TaskWidgetProvider"
             android:exported="true"
@@ -71,6 +72,17 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/expense_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".HabitWidgetProvider"
+            android:exported="true"
+            android:label="TaskFlow Habit">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habit_widget_info" />
         </receiver>
         <receiver
             android:name=".QuickAddWidgetProvider"

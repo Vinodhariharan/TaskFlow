@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A day the habit wasn't scheduled on, or one before it existed. Small
+     rather than faded: the ImageViews draw at intrinsic size (scaleType
+     "center"), so size is the one visual difference that survives tinting. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="#FFFFFFFF" />
+    <size android:width="5dp" android:height="5dp" />
+</shape>

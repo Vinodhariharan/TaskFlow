@@ -492,9 +492,13 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
             ),
 
             // Save pinned to the bottom, above the keyboard.
+            // Scaffold's resizeToAvoidBottomInset already shrinks the body
+            // by the keyboard height, so this sits above the keyboard on its
+            // own. Adding viewInsets.bottom here too — as this once did —
+            // reads the *unshrunk* inset from the context above the Scaffold
+            // and lifts the form by twice the keyboard, hiding the fields.
             Padding(
-              padding: EdgeInsets.fromLTRB(
-                  16, 8, 16, 12 + MediaQuery.of(context).viewInsets.bottom),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
               child: SizedBox(
                 width: double.infinity,
                 child: GestureDetector(

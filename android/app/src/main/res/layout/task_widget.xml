@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Every view type here must be one RemoteViews accepts (i.e. annotated
+     @RemoteView in the framework): layouts, TextView, ImageView, Button and
+     friends. A bare <View> is NOT on that list — using one for the tick
+     targets made the launcher fail to inflate the whole widget, which is why
+     ImageView does the job below. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/task_widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_background"
-    android:padding="14dp">
+    android:padding="12dp">
 
     <LinearLayout
         android:id="@+id/task_header"
@@ -22,18 +27,18 @@
 
             <TextView
                 android:id="@+id/task_count"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Tasks"
                 android:textColor="@color/widget_text"
-                android:textSize="17sp"
+                android:textSize="16sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end" />
 
             <TextView
                 android:id="@+id/task_progress"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="1dp"
                 android:text="Open TaskFlow"
@@ -47,6 +52,7 @@
             android:id="@+id/task_add"
             android:layout_width="30dp"
             android:layout_height="30dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/widget_button"
             android:gravity="center"
             android:text="+"
@@ -56,76 +62,100 @@
             android:contentDescription="@string/add_task_action" />
     </LinearLayout>
 
+    <!-- The rows share whatever height is left, so the widget stays readable
+         when it's resized short and the taps stay comfortably large when it
+         isn't. Hidden rows are skipped by the weight split, so one task fills
+         the space three would have shared. -->
     <LinearLayout
-        android:id="@+id/task_row_0"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <View
-            android:id="@+id/task_check_0"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@drawable/widget_check_circle"
-            android:contentDescription="@string/complete_task_action" />
-        <TextView
-            android:id="@+id/task_0"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:textColor="@color/widget_secondary_text"
-            android:textSize="13sp"
-            android:maxLines="1"
-            android:ellipsize="end" />
-    </LinearLayout>
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:orientation="vertical">
 
-    <LinearLayout
-        android:id="@+id/task_row_1"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <View
-            android:id="@+id/task_check_1"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@drawable/widget_check_circle"
-            android:contentDescription="@string/complete_task_action" />
-        <TextView
-            android:id="@+id/task_1"
+        <LinearLayout
+            android:id="@+id/task_row_0"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:textColor="@color/widget_secondary_text"
-            android:textSize="13sp"
-            android:maxLines="1"
-            android:ellipsize="end" />
-    </LinearLayout>
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <ImageView
+                android:id="@+id/task_check_0"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_check_circle"
+                android:contentDescription="@string/complete_task_action" />
+            <TextView
+                android:id="@+id/task_0"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:gravity="center_vertical"
+                android:textColor="@color/widget_secondary_text"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/task_row_2"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <View
-            android:id="@+id/task_check_2"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="@drawable/widget_check_circle"
-            android:contentDescription="@string/complete_task_action" />
-        <TextView
-            android:id="@+id/task_2"
+        <LinearLayout
+            android:id="@+id/task_row_1"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:textColor="@color/widget_secondary_text"
-            android:textSize="13sp"
-            android:maxLines="1"
-            android:ellipsize="end" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <ImageView
+                android:id="@+id/task_check_1"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_check_circle"
+                android:contentDescription="@string/complete_task_action" />
+            <TextView
+                android:id="@+id/task_1"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:gravity="center_vertical"
+                android:textColor="@color/widget_secondary_text"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/task_row_2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+            <ImageView
+                android:id="@+id/task_check_2"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/widget_check_circle"
+                android:contentDescription="@string/complete_task_action" />
+            <TextView
+                android:id="@+id/task_2"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:gravity="center_vertical"
+                android:textColor="@color/widget_secondary_text"
+                android:textSize="13sp"
+                android:maxLines="1"
+                android:ellipsize="end" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>

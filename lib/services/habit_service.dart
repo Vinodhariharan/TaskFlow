@@ -6,6 +6,7 @@ import '../models/habit.dart';
 import '../models/habit_stats.dart';
 import 'habit_change_notifier.dart';
 import 'notification_service.dart';
+import 'settings_service.dart';
 
 /// Storage for habits and their per-day completion log.
 ///
@@ -159,6 +160,12 @@ class HabitService {
     await _saveLogs(logs);
     HabitChangeNotifier.instance.notifyChanged();
     await NotificationService.instance.cancelForHabit(id);
+    // Don't leave the home screen widget pointing at something that no
+    // longer exists; clearing it lets the widget fall back to a real habit.
+    final settings = SettingsService();
+    if (await settings.getWidgetHabitId() == id) {
+      await settings.setWidgetHabitId(null);
+    }
   }
 
   // ── Log ────────────────────────────────────────────────────────────────

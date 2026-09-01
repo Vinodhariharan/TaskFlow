@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A day that was expected but isn't done: an empty ring. Tinted with the
+     habit's colour for today (still open) and with the muted grey for days
+     already gone (missed). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@android:color/transparent" />
+    <stroke android:width="2dp" android:color="#FFFFFFFF" />
+    <size android:width="12dp" android:height="12dp" />
+</shape>

@@ -6,4 +6,7 @@
     <string name="add_task_action">Add task</string>
     <string name="add_expense_action">Add expense</string>
     <string name="complete_task_action">Mark task complete</string>
+    <string name="habit_widget_description">One habit\'s streak and this week</string>
+    <string name="habit_widget_placeholder">Habit</string>
+    <string name="log_habit_action">Log this habit</string>
 </resources>
