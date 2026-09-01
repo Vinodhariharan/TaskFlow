@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:home_widget/home_widget.dart';
 import '../models/habit.dart';
@@ -6,7 +8,6 @@ import '../screens/expense_widgets.dart' show formatCurrency;
 import 'currency_settings.dart';
 import 'expense_service.dart';
 import 'habit_service.dart';
-import 'settings_service.dart';
 import 'task_service.dart';
 
 /// Handles a widget button press that must NOT open the app — ticking a task
@@ -76,7 +77,6 @@ class WidgetService {
   final _taskService = TaskService();
   final _expenseService = ExpenseService();
   final _habitService = HabitService();
-  final _settingsService = SettingsService();
 
   bool _refreshing = false;
   bool _again = false;
@@ -153,51 +153,77 @@ class WidgetService {
         name: _expenseProvider, androidName: _expenseProvider);
   }
 
-  /// Renders whichever habit the widget is set to track. Everything the
-  /// native side draws is decided here — including the seven-day strip,
-  /// which arrives as a seven-character string rather than seven keys.
+  /// Writes one entry per habit, keyed by habit id, plus the list the
+  /// configuration activity offers when a widget is placed.
+  ///
+  /// Per-habit keys rather than one set of "the chosen habit" keys, because
+  /// each placed widget picks its own habit: the provider is handed a widget
+  /// id, looks up which habit that widget was configured with, and reads
+  /// that habit's entry. Everything it draws — including the seven-day strip,
+  /// which crosses as a seven-character string — is decided here, so the
+  /// streak rules stay in habit_stats.dart with nothing reimplemented in
+  /// Kotlin.
   Future<void> _refreshHabit() async {
     final habits = await _habitService.getHabits();
-    final chosenId = await _settingsService.getWidgetHabitId();
-    // Falls back to the first habit so a freshly-placed widget shows
-    // something real before anyone has been to the detail screen to pick.
-    final habit = habits.where((h) => h.id == chosenId).firstOrNull ??
-        habits.firstOrNull;
-
-    if (habit == null) {
-      await _saveHabitData(
-        id: '',
-        name: 'No habits yet',
-        progress: 'Tap to add one',
-        streak: '',
-        color: '#FF6C63FF',
-        week: 's' * habitWeekDays,
-        action: '',
-      );
-      return;
-    }
-
     final now = DateTime.now();
-    final log = await _habitService.logFor(habit.id);
-    final count = log[habitDateKey(now)] ?? 0;
-    final target = habit.targetCount < 1 ? 1 : habit.targetCount;
-    final scheduledToday = habit.isActiveOn(now);
-    final done = isDoneOn(habit, log, now);
-    final streak = currentStreak(habit, log, now: now);
 
-    await _saveHabitData(
-      id: habit.id,
-      name: habit.name,
-      progress: habitProgressLine(habit, count, target, scheduledToday, done),
-      streak: streak == 0
-          ? 'No streak yet'
-          : '$streak day${streak == 1 ? '' : 's'} in a row',
-      color: '#${habit.color.toARGB32().toRadixString(16).padLeft(8, '0')}',
-      week: habitWeekStrip(habit, log, now),
+    for (final habit in habits) {
+      final log = await _habitService.logFor(habit.id);
+      final count = log[habitDateKey(now)] ?? 0;
+      final target = habit.targetCount < 1 ? 1 : habit.targetCount;
+      final scheduled = habit.isActiveOn(now);
+      final done = isDoneOn(habit, log, now);
+      final streak = currentStreak(habit, log, now: now);
+
+      await HomeWidget.saveWidgetData<String>(
+          'habit_${habit.id}_name', habit.name);
+      await HomeWidget.saveWidgetData<String>(
+        'habit_${habit.id}_status',
+        habitStatusLine(habit, count, target, scheduled, done, streak),
+      );
+      await HomeWidget.saveWidgetData<String>(
+        'habit_${habit.id}_color',
+        '#${habit.color.toARGB32().toRadixString(16).padLeft(8, '0')}',
+      );
+      await HomeWidget.saveWidgetData<String>(
+          'habit_${habit.id}_week', habitWeekStrip(habit, log, now));
       // Nothing to tap on a day the habit isn't expected — the button is
       // hidden rather than logging a count against a rest day.
-      action: !scheduledToday ? '' : (done ? '✓' : '+'),
+      await HomeWidget.saveWidgetData<String>(
+        'habit_${habit.id}_action',
+        !scheduled ? '' : (done ? '✓' : '+'),
+      );
+    }
+
+    // What the configuration activity lists. JSON because Android parses it
+    // with the framework's own org.json, so there's no hand-rolled
+    // separator to get wrong on a habit named with a stray character.
+    await HomeWidget.saveWidgetData<String>(
+      'habit_options',
+      jsonEncode([
+        for (final habit in habits) {'id': habit.id, 'name': habit.name},
+      ]),
     );
+    // What a widget shows before it's been configured, or after the habit it
+    // was pointed at has been deleted. Empty when there are no habits, which
+    // is how the widget knows to say so.
+    await HomeWidget.saveWidgetData<String>(
+      'habit_default_id',
+      habits.isEmpty ? '' : habits.first.id,
+    );
+
+    await HomeWidget.updateWidget(
+        name: _habitProvider, androidName: _habitProvider);
+  }
+
+  /// The one line of detail the compact widget has room for: where today
+  /// stands, and the streak behind it.
+  @visibleForTesting
+  static String habitStatusLine(Habit habit, int count, int target,
+      bool scheduled, bool done, int streak) {
+    final progress = habitProgressLine(habit, count, target, scheduled, done);
+    if (streak == 0) return progress;
+    return '$progress · $streak day${streak == 1 ? '' : 's'}';
   }
 
   @visibleForTesting
@@ -234,23 +260,4 @@ class WidgetService {
     return buffer.toString();
   }
 
-  Future<void> _saveHabitData({
-    required String id,
-    required String name,
-    required String progress,
-    required String streak,
-    required String color,
-    required String week,
-    required String action,
-  }) async {
-    await HomeWidget.saveWidgetData<String>('habit_id', id);
-    await HomeWidget.saveWidgetData<String>('habit_name', name);
-    await HomeWidget.saveWidgetData<String>('habit_progress', progress);
-    await HomeWidget.saveWidgetData<String>('habit_streak', streak);
-    await HomeWidget.saveWidgetData<String>('habit_color', color);
-    await HomeWidget.saveWidgetData<String>('habit_week', week);
-    await HomeWidget.saveWidgetData<String>('habit_action', action);
-    await HomeWidget.updateWidget(
-        name: _habitProvider, androidName: _habitProvider);
-  }
 }

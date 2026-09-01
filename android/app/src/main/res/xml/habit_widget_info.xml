@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- One cell tall by default. widgetFeatures="reconfigurable" means the
+     configuration activity runs when the widget is placed AND can be run
+     again later from the launcher's long-press menu, so the habit a widget
+     tracks can be changed without removing and re-adding it. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/habit_widget"
+    android:configure="com.taskflow.taskflow.HabitWidgetConfigureActivity"
+    android:widgetFeatures="reconfigurable"
     android:minWidth="180dp"
-    android:minHeight="110dp"
+    android:minHeight="40dp"
     android:minResizeWidth="150dp"
-    android:minResizeHeight="80dp"
+    android:minResizeHeight="40dp"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
     android:description="@string/habit_widget_description"
     android:previewLayout="@layout/habit_widget"
     android:targetCellWidth="3"
-    android:targetCellHeight="2"
+    android:targetCellHeight="1"
     android:updatePeriodMillis="1800000" />

@@ -73,6 +73,17 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/expense_widget_info" />
         </receiver>
+        <!-- Asks which habit a placed habit widget should track. Runs at
+             placement, and again from the launcher's reconfigure menu. -->
+        <activity
+            android:name=".HabitWidgetConfigureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/HabitWidgetConfigureTheme">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".HabitWidgetProvider"
             android:exported="true"

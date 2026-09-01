@@ -9,4 +9,8 @@
     <string name="habit_widget_description">One habit\'s streak and this week</string>
     <string name="habit_widget_placeholder">Habit</string>
     <string name="log_habit_action">Log this habit</string>
+    <string name="habit_widget_empty_name">No habit</string>
+    <string name="habit_widget_empty_status">Open TaskFlow to add one</string>
+    <string name="habit_widget_configure_title">Which habit?</string>
+    <string name="habit_widget_configure_empty">No habits yet. Add one in TaskFlow, then place this widget again.</string>
 </resources>

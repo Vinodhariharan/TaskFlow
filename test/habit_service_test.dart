@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:taskflow/models/habit_stats.dart';
 import 'package:taskflow/services/habit_service.dart';
-import 'package:taskflow/services/settings_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -146,21 +145,4 @@ void main() {
     expect(await HabitService().countOn(habit.id, DateTime.now()), 1);
   });
 
-  test('deleting the habit the widget tracks clears the widget selection',
-      () async {
-    final service = HabitService();
-    final settings = SettingsService();
-    final tracked = await service.addHabit(name: 'Walk');
-    final other = await service.addHabit(name: 'Read');
-    await settings.setWidgetHabitId(tracked.id);
-
-    // Deleting some other habit must leave the choice alone.
-    await service.deleteHabit(other.id);
-    expect(await settings.getWidgetHabitId(), tracked.id);
-
-    // Deleting the tracked one must not leave the widget pointing at a
-    // habit that no longer exists.
-    await service.deleteHabit(tracked.id);
-    expect(await settings.getWidgetHabitId(), isNull);
-  });
 }

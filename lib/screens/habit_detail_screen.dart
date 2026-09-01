@@ -6,8 +6,6 @@ import '../models/habit.dart';
 import '../models/habit_stats.dart';
 import '../services/habit_change_notifier.dart';
 import '../services/habit_service.dart';
-import '../services/settings_service.dart';
-import '../services/widget_service.dart';
 import 'habit_form_screen.dart';
 
 /// One habit in full: how it's going, and the history that makes a habit
@@ -24,10 +22,8 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   static const _heatmapWeeks = 12;
 
   final _service = HabitService();
-  final _settings = SettingsService();
   Habit? _habit;
   Map<String, int> _log = {};
-  String? _widgetHabitId;
   bool _loading = true;
 
   @override
@@ -46,40 +42,14 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   Future<void> _load() async {
     final habit = await _service.getHabitById(widget.habitId);
     final log = await _service.logFor(widget.habitId);
-    final widgetHabitId = await _settings.getWidgetHabitId();
     if (!mounted) return;
     setState(() {
       _habit = habit;
       _log = log;
-      _widgetHabitId = widgetHabitId;
       _loading = false;
     });
   }
 
-  /// Points the home screen habit widget at this habit. There's one widget
-  /// selection for the whole app rather than one per placed widget, because
-  /// per-instance choice needs an Android configuration activity — see
-  /// SettingsService.getWidgetHabitId.
-  Future<void> _showOnWidget() async {
-    final habit = _habit;
-    if (habit == null) return;
-    HapticFeedback.selectionClick();
-    await _settings.setWidgetHabitId(habit.id);
-    await WidgetService.instance.refresh();
-    await _load();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(
-          'The home screen habit widget now tracks "${habit.name}"',
-          style: TextStyle(color: context.textColor),
-        ),
-        backgroundColor: context.cardColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ));
-  }
 
   Future<void> _edit() async {
     final habit = _habit;
@@ -314,16 +284,6 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
           icon: Icons.edit_rounded,
           label: 'Edit habit',
           onTap: _edit,
-        ),
-        const SizedBox(height: 10),
-        _ActionButton(
-          icon: _widgetHabitId == habit.id
-              ? Icons.widgets_rounded
-              : Icons.widgets_outlined,
-          label: _widgetHabitId == habit.id
-              ? 'On the home screen widget'
-              : 'Show on home screen widget',
-          onTap: _showOnWidget,
         ),
         const SizedBox(height: 10),
         _ActionButton(

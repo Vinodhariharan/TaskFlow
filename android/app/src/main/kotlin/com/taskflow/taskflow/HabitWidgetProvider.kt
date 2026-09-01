@@ -4,32 +4,44 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
+import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
 
 /**
- * Home screen widget for the one habit the app is set to track.
+ * Home screen widget for one habit, chosen per placed widget by
+ * HabitWidgetConfigureActivity.
  *
  * Like the other two providers this is a dumb renderer: WidgetService in Dart
- * decides the name, the progress line, the streak text and even the seven-day
- * strip, which arrives as a seven-character string. Nothing here knows what a
- * streak is, so there's no second implementation of the rules to drift out of
- * sync with habit_stats.dart.
+ * decides the name, the status line and even the seven-day strip, which
+ * arrives as a seven-character string. Nothing here knows what a streak is,
+ * so there's no second implementation of the rules to drift out of sync with
+ * habit_stats.dart.
+ *
+ * At its default one-cell height only the header fits, so the week strip is
+ * shown only once the widget has been resized tall enough to hold it.
  *
  * Tapping the button logs the habit in the background; everything else opens
  * the habit's page in the app.
  */
 class HabitWidgetProvider : HomeWidgetProvider() {
 
-    /** Character codes shared with WidgetService._habitWeekStrip in Dart. */
     private companion object {
+        /** Character codes shared with WidgetService.habitWeekStrip in Dart. */
         const val DAY_DONE = 'd'
         const val DAY_OPEN = 'o'
         const val DAY_MISSED = 'm'
         const val WEEK_DAYS = 7
+
+        /**
+         * How tall the widget has to be, in dp, before the week strip earns
+         * its place. One cell reports well under this; two cells clear it.
+         */
+        const val WEEK_STRIP_MIN_HEIGHT_DP = 110
 
         val DAY_VIEW_IDS = intArrayOf(
             R.id.habit_day_0,
@@ -48,71 +60,159 @@ class HabitWidgetProvider : HomeWidgetProvider() {
         appWidgetIds: IntArray,
         widgetData: SharedPreferences,
     ) {
-        val habitId = widgetData.getString("habit_id", null).orEmpty()
+        appWidgetIds.forEach { widgetId ->
+            appWidgetManager.updateAppWidget(
+                widgetId,
+                buildViews(context, appWidgetManager, widgetId, widgetData),
+            )
+        }
+    }
+
+    /**
+     * Resizing doesn't go through onUpdate, and the week strip depends on how
+     * much height the widget has, so it has to be re-rendered here too.
+     */
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle?,
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        appWidgetManager.updateAppWidget(
+            appWidgetId,
+            buildViews(
+                context,
+                appWidgetManager,
+                appWidgetId,
+                HomeWidgetPlugin.getData(context),
+            ),
+        )
+    }
+
+    /** Forgets which habit a removed widget tracked. */
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val editor = HomeWidgetPlugin.getData(context).edit()
+        appWidgetIds.forEach { widgetId ->
+            editor.remove(HabitWidgetConfigureActivity.habitKeyForWidget(widgetId))
+        }
+        editor.apply()
+    }
+
+    private fun buildViews(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        widgetId: Int,
+        widgetData: SharedPreferences,
+    ): RemoteViews {
+        val habitId = habitIdFor(widgetId, widgetData)
         val accent = parseColorOr(
-            widgetData.getString("habit_color", null),
+            widgetData.getString("habit_${habitId}_color", null),
             fallback = context.getColor(R.color.widget_primary),
         )
         val muted = context.getColor(R.color.widget_muted)
-        val week = widgetData.getString("habit_week", null).orEmpty()
 
-        appWidgetIds.forEach { widgetId ->
-            val views = RemoteViews(context.packageName, R.layout.habit_widget).apply {
+        return RemoteViews(context.packageName, R.layout.habit_widget).apply {
+            if (habitId.isEmpty()) {
+                // No habit to show: either none exist yet, or the app hasn't
+                // run since this widget was placed.
+                setTextViewText(R.id.habit_name, context.getString(R.string.habit_widget_empty_name))
                 setTextViewText(
-                    R.id.habit_name,
-                    widgetData.getString("habit_name", null) ?: "Habit",
+                    R.id.habit_status,
+                    context.getString(R.string.habit_widget_empty_status),
                 )
-                setTextViewText(
-                    R.id.habit_progress,
-                    widgetData.getString("habit_progress", null).orEmpty(),
-                )
-                setTextViewText(
-                    R.id.habit_streak,
-                    widgetData.getString("habit_streak", null).orEmpty(),
-                )
-                // The habit's own colour is what makes one of these widgets
-                // tell itself apart from another at a glance.
-                setTextColor(R.id.habit_streak, accent)
-
-                // Blank means there's nothing sensible to log right now — no
-                // habit chosen yet, or today isn't one of its days.
-                val action = widgetData.getString("habit_action", null).orEmpty()
-                if (action.isBlank() || habitId.isBlank()) {
-                    setViewVisibility(R.id.habit_action, View.GONE)
-                } else {
-                    setViewVisibility(R.id.habit_action, View.VISIBLE)
-                    setTextViewText(R.id.habit_action, action)
-                    setOnClickPendingIntent(
-                        R.id.habit_action,
-                        HomeWidgetBackgroundIntent.getBroadcast(
-                            context,
-                            Uri.parse("taskflow://habit?id=$habitId"),
-                        ),
-                    )
-                }
-
-                renderWeek(this, week, accent, muted)
-
-                // Everything the button doesn't cover opens the app — the
-                // habit's own page when there is one, the Habits tab
-                // otherwise.
-                val open = HomeWidgetLaunchIntent.getActivity(
-                    context,
-                    MainActivity::class.java,
-                    Uri.parse(
-                        if (habitId.isBlank()) {
-                            "taskflow://habits"
-                        } else {
-                            "taskflow://habitdetail?id=$habitId"
-                        }
+                setViewVisibility(R.id.habit_action, View.GONE)
+                setViewVisibility(R.id.habit_week, View.GONE)
+                setOnClickPendingIntent(
+                    R.id.habit_widget_root,
+                    HomeWidgetLaunchIntent.getActivity(
+                        context,
+                        MainActivity::class.java,
+                        Uri.parse("taskflow://habits"),
                     ),
                 )
-                setOnClickPendingIntent(R.id.habit_header, open)
-                setOnClickPendingIntent(R.id.habit_week, open)
-                setOnClickPendingIntent(R.id.habit_widget_root, open)
+                return@apply
             }
-            appWidgetManager.updateAppWidget(widgetId, views)
+
+            setTextViewText(
+                R.id.habit_name,
+                widgetData.getString("habit_${habitId}_name", null) ?: "Habit",
+            )
+            setTextViewText(
+                R.id.habit_status,
+                widgetData.getString("habit_${habitId}_status", null).orEmpty(),
+            )
+            // The habit's own colour is what makes one of these widgets tell
+            // itself apart from another at a glance.
+            setTextColor(R.id.habit_status, accent)
+
+            // Blank means there's nothing sensible to log right now — today
+            // isn't one of this habit's days.
+            val action = widgetData.getString("habit_${habitId}_action", null).orEmpty()
+            if (action.isBlank()) {
+                setViewVisibility(R.id.habit_action, View.GONE)
+            } else {
+                setViewVisibility(R.id.habit_action, View.VISIBLE)
+                setTextViewText(R.id.habit_action, action)
+                setOnClickPendingIntent(
+                    R.id.habit_action,
+                    HomeWidgetBackgroundIntent.getBroadcast(
+                        context,
+                        Uri.parse("taskflow://habit?id=$habitId"),
+                    ),
+                )
+            }
+
+            if (hasRoomForWeek(appWidgetManager, widgetId)) {
+                setViewVisibility(R.id.habit_week, View.VISIBLE)
+                renderWeek(
+                    this,
+                    widgetData.getString("habit_${habitId}_week", null).orEmpty(),
+                    accent,
+                    muted,
+                )
+            } else {
+                setViewVisibility(R.id.habit_week, View.GONE)
+            }
+
+            // Everything the button doesn't cover opens the habit's page.
+            val open = HomeWidgetLaunchIntent.getActivity(
+                context,
+                MainActivity::class.java,
+                Uri.parse("taskflow://habitdetail?id=$habitId"),
+            )
+            setOnClickPendingIntent(R.id.habit_header, open)
+            setOnClickPendingIntent(R.id.habit_week, open)
+            setOnClickPendingIntent(R.id.habit_widget_root, open)
         }
+    }
+
+    /**
+     * Which habit this widget tracks: its own choice, or the app's first
+     * habit when it has none — a widget placed before per-widget choice
+     * existed, or one whose habit has since been deleted, still shows
+     * something real rather than going blank.
+     */
+    private fun habitIdFor(widgetId: Int, widgetData: SharedPreferences): String {
+        val chosen = widgetData
+            .getString(HabitWidgetConfigureActivity.habitKeyForWidget(widgetId), null)
+            .orEmpty()
+        // A name is written for every habit that exists, so its absence is
+        // how a deleted habit is detected.
+        if (chosen.isNotEmpty() &&
+            widgetData.getString("habit_${chosen}_name", null) != null
+        ) {
+            return chosen
+        }
+        return widgetData.getString("habit_default_id", null).orEmpty()
+    }
+
+    /** Whether the launcher has given this widget the height for the strip. */
+    private fun hasRoomForWeek(appWidgetManager: AppWidgetManager, widgetId: Int): Boolean {
+        val options = appWidgetManager.getAppWidgetOptions(widgetId) ?: return false
+        val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
+        return minHeight >= WEEK_STRIP_MIN_HEIGHT_DP
     }
 
     /**

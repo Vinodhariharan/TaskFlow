@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Only RemoteViews-capable view types here (see task_widget.xml for what
-     happens otherwise). The week strip is seven ImageViews rather than a
-     list: the count is fixed, so a RemoteViewsService would be machinery
-     for nothing. -->
+     happens otherwise).
+
+     Sized for one cell by default, which is one row: name, a status line and
+     the log button. The week strip below it is shown only once the widget is
+     resized tall enough to fit it — HabitWidgetProvider asks the launcher how
+     much height it actually has and hides the row otherwise, so the compact
+     size stays compact without needing a second widget in the picker. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/habit_widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
+    android:gravity="center_vertical"
     android:background="@drawable/widget_background"
-    android:padding="12dp">
+    android:padding="10dp">
 
     <LinearLayout
         android:id="@+id/habit_header"
@@ -30,13 +35,13 @@
                 android:layout_height="wrap_content"
                 android:text="@string/habit_widget_placeholder"
                 android:textColor="@color/widget_text"
-                android:textSize="16sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:maxLines="1"
                 android:ellipsize="end" />
 
             <TextView
-                android:id="@+id/habit_streak"
+                android:id="@+id/habit_status"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="1dp"
@@ -48,8 +53,8 @@
 
         <TextView
             android:id="@+id/habit_action"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:layout_marginStart="8dp"
             android:background="@drawable/widget_button"
             android:gravity="center"
@@ -60,16 +65,6 @@
             android:contentDescription="@string/log_habit_action" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/habit_progress"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:textColor="@color/widget_secondary_text"
-        android:textSize="13sp"
-        android:maxLines="1"
-        android:ellipsize="end" />
-
     <!-- Last seven days, oldest on the left, today on the right. -->
     <LinearLayout
         android:id="@+id/habit_week"
@@ -77,12 +72,13 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:visibility="gone">
 
         <ImageView
             android:id="@+id/habit_day_0"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -91,7 +87,7 @@
         <ImageView
             android:id="@+id/habit_day_1"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -100,7 +96,7 @@
         <ImageView
             android:id="@+id/habit_day_2"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -109,7 +105,7 @@
         <ImageView
             android:id="@+id/habit_day_3"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -118,7 +114,7 @@
         <ImageView
             android:id="@+id/habit_day_4"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -127,7 +123,7 @@
         <ImageView
             android:id="@+id/habit_day_5"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"
@@ -136,7 +132,7 @@
         <ImageView
             android:id="@+id/habit_day_6"
             android:layout_width="0dp"
-            android:layout_height="16dp"
+            android:layout_height="14dp"
             android:layout_weight="1"
             android:scaleType="center"
             android:src="@drawable/widget_dot_open"

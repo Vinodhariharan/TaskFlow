@@ -102,4 +102,23 @@ void main() {
           'Rest day');
     });
   });
+
+  group('status line', () {
+    test('joins progress and streak when there is a streak', () {
+      final habit = habitOf(targetCount: 8, unit: 'glasses');
+      expect(
+          WidgetService.habitStatusLine(habit, 3, 8, true, false, 5),
+          '3 of 8 glasses · 5 days');
+    });
+
+    test('says days, not day, only when it means it', () {
+      expect(WidgetService.habitStatusLine(habitOf(), 1, 1, true, true, 1),
+          'Done today · 1 day');
+    });
+
+    test('drops the streak entirely at zero rather than saying "0 days"', () {
+      expect(WidgetService.habitStatusLine(habitOf(), 0, 1, true, false, 0),
+          'Not done yet');
+    });
+  });
 }

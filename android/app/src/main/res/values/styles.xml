@@ -15,4 +15,12 @@
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
+
+    <!-- The habit widget's configuration activity. A floating dark panel:
+         it paints the same surface as the widget itself, so picking a habit
+         reads as part of the widget rather than as a launcher screen. -->
+    <style name="HabitWidgetConfigureTheme" parent="@android:style/Theme.DeviceDefault.Dialog.NoActionBar">
+        <item name="android:windowBackground">@drawable/widget_background</item>
+        <item name="android:backgroundDimEnabled">true</item>
+    </style>
 </resources>
