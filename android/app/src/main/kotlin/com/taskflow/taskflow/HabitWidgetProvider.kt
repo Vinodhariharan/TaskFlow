@@ -4,7 +4,6 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
-import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import es.antonborri.home_widget.HomeWidgetBackgroundIntent
@@ -22,9 +21,6 @@ import es.antonborri.home_widget.HomeWidgetProvider
  * so there's no second implementation of the rules to drift out of sync with
  * habit_stats.dart.
  *
- * At its default one-cell height only the header fits, so the week strip is
- * shown only once the widget has been resized tall enough to hold it.
- *
  * Tapping the button logs the habit in the background; everything else opens
  * the habit's page in the app.
  */
@@ -36,12 +32,6 @@ class HabitWidgetProvider : HomeWidgetProvider() {
         const val DAY_OPEN = 'o'
         const val DAY_MISSED = 'm'
         const val WEEK_DAYS = 7
-
-        /**
-         * How tall the widget has to be, in dp, before the week strip earns
-         * its place. One cell reports well under this; two cells clear it.
-         */
-        const val WEEK_STRIP_MIN_HEIGHT_DP = 110
 
         val DAY_VIEW_IDS = intArrayOf(
             R.id.habit_day_0,
@@ -63,31 +53,9 @@ class HabitWidgetProvider : HomeWidgetProvider() {
         appWidgetIds.forEach { widgetId ->
             appWidgetManager.updateAppWidget(
                 widgetId,
-                buildViews(context, appWidgetManager, widgetId, widgetData),
+                buildViews(context, widgetId, widgetData),
             )
         }
-    }
-
-    /**
-     * Resizing doesn't go through onUpdate, and the week strip depends on how
-     * much height the widget has, so it has to be re-rendered here too.
-     */
-    override fun onAppWidgetOptionsChanged(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int,
-        newOptions: Bundle?,
-    ) {
-        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        appWidgetManager.updateAppWidget(
-            appWidgetId,
-            buildViews(
-                context,
-                appWidgetManager,
-                appWidgetId,
-                HomeWidgetPlugin.getData(context),
-            ),
-        )
     }
 
     /** Forgets which habit a removed widget tracked. */
@@ -102,7 +70,6 @@ class HabitWidgetProvider : HomeWidgetProvider() {
 
     private fun buildViews(
         context: Context,
-        appWidgetManager: AppWidgetManager,
         widgetId: Int,
         widgetData: SharedPreferences,
     ): RemoteViews {
@@ -164,17 +131,13 @@ class HabitWidgetProvider : HomeWidgetProvider() {
                 )
             }
 
-            if (hasRoomForWeek(appWidgetManager, widgetId)) {
-                setViewVisibility(R.id.habit_week, View.VISIBLE)
-                renderWeek(
-                    this,
-                    widgetData.getString("habit_${habitId}_week", null).orEmpty(),
-                    accent,
-                    muted,
-                )
-            } else {
-                setViewVisibility(R.id.habit_week, View.GONE)
-            }
+            setViewVisibility(R.id.habit_week, View.VISIBLE)
+            renderWeek(
+                this,
+                widgetData.getString("habit_${habitId}_week", null).orEmpty(),
+                accent,
+                muted,
+            )
 
             // Everything the button doesn't cover opens the habit's page.
             val open = HomeWidgetLaunchIntent.getActivity(
@@ -206,13 +169,6 @@ class HabitWidgetProvider : HomeWidgetProvider() {
             return chosen
         }
         return widgetData.getString("habit_default_id", null).orEmpty()
-    }
-
-    /** Whether the launcher has given this widget the height for the strip. */
-    private fun hasRoomForWeek(appWidgetManager: AppWidgetManager, widgetId: Int): Boolean {
-        val options = appWidgetManager.getAppWidgetOptions(widgetId) ?: return false
-        val minHeight = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0)
-        return minHeight >= WEEK_STRIP_MIN_HEIGHT_DP
     }
 
     /**

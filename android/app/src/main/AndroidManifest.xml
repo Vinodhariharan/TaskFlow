@@ -73,6 +73,13 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/expense_widget_info" />
         </receiver>
+        <!-- Backs the Tasks widget's scrolling list. Not exported, but the
+             system needs BIND_REMOTEVIEWS to be allowed to bind to it. -->
+        <service
+            android:name=".TaskWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <!-- Asks which habit a placed habit widget should track. Runs at
              placement, and again from the launcher's reconfigure menu. -->
         <activity

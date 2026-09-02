@@ -69,11 +69,6 @@ class WidgetService {
   @visibleForTesting
   static const habitWeekDays = 7;
 
-  /// How many task titles each widget lists. Matches the fixed number of
-  /// TextViews in task_widget.xml — a list would need a RemoteViewsService,
-  /// which is a lot of machinery for three lines.
-  static const _taskLineCount = 3;
-
   final _taskService = TaskService();
   final _expenseService = ExpenseService();
   final _habitService = HabitService();
@@ -118,20 +113,17 @@ class WidgetService {
       today.isEmpty ? 'Nothing scheduled' : '$done of ${today.length} done',
     );
 
-    for (var i = 0; i < _taskLineCount; i++) {
-      // Empty string rather than null so the native side can hide the row by
-      // testing for blank, without needing a separate "how many" key.
-      await HomeWidget.saveWidgetData<String>(
-        'task_$i',
-        i < pending.length ? pending[i].title : '',
-      );
-      // The id behind each row, so its tick button and its "open this task"
-      // tap can both address the right task.
-      await HomeWidget.saveWidgetData<String>(
-        'task_${i}_id',
-        i < pending.length ? pending[i].id : '',
-      );
-    }
+    // Every outstanding task, not a fixed few: the widget scrolls through
+    // them via a RemoteViewsService, so there's no row count to match. JSON
+    // because Android parses it with the framework's own org.json, leaving
+    // no hand-rolled separator to get wrong on a task titled with a stray
+    // character.
+    await HomeWidget.saveWidgetData<String>(
+      'task_list',
+      jsonEncode([
+        for (final task in pending) {'id': task.id, 'title': task.title},
+      ]),
+    );
 
     await HomeWidget.updateWidget(name: _taskProvider, androidName: _taskProvider);
   }

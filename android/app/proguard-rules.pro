@@ -51,3 +51,11 @@
 
 # androidx.work looks its workers up by name too.
 -keep class * extends androidx.work.ListenableWorker { *; }
+
+# The Tasks widget's list is bound by the system through RemoteViewsService,
+# which reaches the factory reflectively. Manifest-declared services survive
+# on their own, but this project has been bitten twice by release-only R8
+# stripping (Gson signatures, then WorkManager workers), so it's spelled out.
+-keep class * extends android.widget.RemoteViewsService { *; }
+-keep class * implements android.widget.RemoteViewsService$RemoteViewsFactory { *; }
+
