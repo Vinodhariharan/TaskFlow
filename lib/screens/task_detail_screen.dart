@@ -361,9 +361,6 @@ class _StatusPill extends StatelessWidget {
     } else if (task.isFuture) {
       label = 'Upcoming';
       color = AppColors.dueTodayColor;
-    } else if (task.isCarriedOver) {
-      label = 'Carried over';
-      color = AppColors.primary;
     } else {
       label = 'To do';
       color = context.mutedColor;

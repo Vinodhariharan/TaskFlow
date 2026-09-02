@@ -24,8 +24,8 @@ import 'task_detail_screen.dart';
 import 'task_form_screen.dart';
 
 /// Top-level shell that switches between the Tasks, Expenses and Habits
-/// screens via a segmented pill at the top, or by swiping left/right on the
-/// content itself.
+/// screens via the bottom bar, or by swiping left/right on the content
+/// itself.
 class RootShell extends StatefulWidget {
   final ThemeNotifier notifier;
   const RootShell({super.key, required this.notifier});
@@ -46,6 +46,16 @@ String screenLabel(int screenId) => switch (screenId) {
       kTasksScreen => 'Tasks',
       kExpensesScreen => 'Expenses',
       _ => 'Habits',
+    };
+
+/// Literal `Icons.*` references, never an IconData rebuilt from a stored
+/// codePoint: Flutter's icon tree-shaker keeps only what it can see
+/// statically, and anything else renders blank in a release build. Same
+/// constraint as kHabitIconChoices and the task categories.
+IconData screenIcon(int screenId) => switch (screenId) {
+      kTasksScreen => Icons.check_circle_outline_rounded,
+      kExpensesScreen => Icons.account_balance_wallet_outlined,
+      _ => Icons.local_fire_department_outlined,
     };
 
 class _RootShellState extends State<RootShell> {
@@ -229,40 +239,34 @@ class _RootShellState extends State<RootShell> {
         bottom: false,
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _TopTabBar(
-                      order: order,
-                      current: _page,
-                      onChanged: _goToPage,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              SettingsScreen(notifier: widget.notifier),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: context.cardColor,
-                        borderRadius: BorderRadius.circular(14),
+            // Settings sits on its own rather than joining the bottom bar:
+            // it isn't a peer of the three sections, and giving it equal
+            // billing there would squeeze the tabs you actually live in.
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 20, 0),
+                child: GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            SettingsScreen(notifier: widget.notifier),
                       ),
-                      child: Icon(Icons.settings_rounded,
-                          size: 20, color: context.mutedColor),
+                    );
+                  },
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: context.cardColor,
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: Icon(Icons.settings_rounded,
+                        size: 18, color: context.mutedColor),
                   ),
-                ],
+                ),
               ),
             ),
             Expanded(
@@ -283,62 +287,110 @@ class _RootShellState extends State<RootShell> {
           ],
         ),
       ),
+      bottomNavigationBar: _BottomNavBar(
+        order: order,
+        current: _page,
+        onChanged: _goToPage,
+      ),
     );
   }
 }
 
-class _TopTabBar extends StatelessWidget {
+/// Icon-only bottom bar. The selected tab also shows its name underneath,
+/// so the current screen is always named while the others stay compact.
+class _BottomNavBar extends StatelessWidget {
   /// Screen identities in left-to-right order.
   final List<int> order;
   final int current;
   final ValueChanged<int> onChanged;
-  const _TopTabBar(
-      {required this.order, required this.current, required this.onChanged});
+
+  const _BottomNavBar({
+    required this.order,
+    required this.current,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: context.cardColor,
-        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          top: BorderSide(color: context.subtleColor.withValues(alpha: 0.4)),
+        ),
       ),
-      child: Row(
-        children: [
-          for (var pageIndex = 0; pageIndex < order.length; pageIndex++)
-            Expanded(
-              child: _segment(
-                context,
-                screenLabel(order[pageIndex]),
-                pageIndex,
-              ),
-            ),
-        ],
+      // Bottom padding only: the bar has to clear the gesture bar without
+      // the shell's own SafeArea (which sets bottom: false) fighting it.
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 62,
+          child: Row(
+            children: [
+              for (var pageIndex = 0; pageIndex < order.length; pageIndex++)
+                Expanded(
+                  child: _NavItem(
+                    icon: screenIcon(order[pageIndex]),
+                    label: screenLabel(order[pageIndex]),
+                    selected: current == pageIndex,
+                    onTap: () => onChanged(pageIndex),
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
+}
 
-  Widget _segment(BuildContext context, String label, int pageIndex) {
-    final selected = current == pageIndex;
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.primary : context.mutedColor;
     return GestureDetector(
-      onTap: () => onChanged(pageIndex),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary : Colors.transparent,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Center(
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? Colors.white : context.mutedColor,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 24, color: color),
+          // The label only exists for the selected tab, so it animates in
+          // rather than appearing abruptly, and the icon shifts up to make
+          // room instead of the row changing height.
+          AnimatedSize(
+            duration: const Duration(milliseconds: 150),
+            curve: Curves.easeOut,
+            child: selected
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        // Small, but not so small it stops being readable —
+                        // 11sp is about the floor for a label people are
+                        // meant to actually read rather than glance past.
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  )
+                : const SizedBox(width: 0, height: 0),
           ),
-        ),
+        ],
       ),
     );
   }

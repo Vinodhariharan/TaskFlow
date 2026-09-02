@@ -32,9 +32,12 @@ class TaskService {
 
   /// Today's list:
   /// - General tasks created today
-  /// - Incomplete general tasks from previous days (carried over)
+  /// - Incomplete general tasks from previous days, which simply roll
+  ///   forward: an undated task that isn't done yet is still just a task,
+  ///   so nothing in the UI singles it out
   /// - Scheduled tasks for today
-  /// - Overdue scheduled tasks (past date, incomplete) — carried over with color
+  /// - Overdue scheduled tasks (past date, incomplete) — the only ones
+  ///   highlighted, since a missed due date is a real fact about the task
   Future<List<Task>> getTodayTasks({Set<String>? categoryIds}) async {
     final all = await _loadAll();
     final today = _dateOnly(DateTime.now());
@@ -70,6 +73,12 @@ class TaskService {
         if (a.isScheduledToday != b.isScheduledToday) return a.isScheduledToday ? -1 : 1;
         // Overdue next among incomplete
         if (a.isOverdue != b.isOverdue) return a.isOverdue ? -1 : 1;
+        // Where the user dragged it, ahead of priority: a task has to stay
+        // where it was put, or dragging one above a higher-priority task
+        // would snap back and read as broken. Only dragged tasks carry an
+        // index, so priority still orders everything nobody has touched.
+        final placed = _compareSortIndex(a, b);
+        if (placed != 0) return placed;
         if (a.priority != b.priority) {
           return b.priority.index.compareTo(a.priority.index);
         }
@@ -107,6 +116,8 @@ class TaskService {
     for (final list in grouped.values) {
       list.sort((a, b) {
         if (a.isCompleted != b.isCompleted) return a.isCompleted ? 1 : -1;
+        final placed = _compareSortIndex(a, b);
+        if (placed != 0) return placed;
         return b.priority.index.compareTo(a.priority.index);
       });
     }
@@ -172,6 +183,61 @@ class TaskService {
     TaskChangeNotifier.instance.notifyChanged();
     await NotificationService.instance.scheduleForTask(task);
     return task;
+  }
+
+  /// Orders two tasks by where the user dragged them. A task that has been
+  /// placed comes before one that hasn't, which is what puts anything added
+  /// after a reorder at the end instead of in the middle. Returns 0 when
+  /// neither has been placed, leaving the caller's remaining rules to
+  /// decide.
+  static int _compareSortIndex(Task a, Task b) {
+    final ai = a.sortIndex;
+    final bi = b.sortIndex;
+    if (ai == null && bi == null) return 0;
+    if (ai == null) return 1;
+    if (bi == null) return -1;
+    return ai.compareTo(bi);
+  }
+
+  /// Writes a new manual order for [orderedIds], which must be the ids of
+  /// one group of tasks — today's outstanding list, say — in the order the
+  /// user just dragged them into.
+  ///
+  /// Indices only ever compete within a group, since the sort settles the
+  /// completed/scheduled/overdue grouping before consulting them, so
+  /// numbering from zero each time is safe. Ids that no longer exist are
+  /// skipped, since the list may have been rebuilt while a drag was in
+  /// flight.
+  Future<void> reorderTasks(List<String> orderedIds) async {
+    if (orderedIds.isEmpty) return;
+    final tasks = await _loadAll();
+    final byId = {for (final t in tasks) t.id: t};
+    final moving =
+        orderedIds.map((id) => byId[id]).whereType<Task>().toList();
+    if (moving.isEmpty) return;
+
+    for (var i = 0; i < moving.length; i++) {
+      moving[i].sortIndex = i;
+    }
+    await _saveAll(tasks);
+    TaskChangeNotifier.instance.notifyChanged();
+  }
+
+  /// Deletes several tasks in one load+save cycle, so a multi-select delete
+  /// is a single write and a single undoable action rather than N of each.
+  Future<List<Task>> deleteTasks(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return const [];
+    final tasks = await _loadAll();
+    final removed = tasks.where((t) => idSet.contains(t.id)).toList();
+    if (removed.isEmpty) return const [];
+    tasks.removeWhere((t) => idSet.contains(t.id));
+    await _saveAll(tasks);
+    for (final task in removed) {
+      await NotificationService.instance.cancelForTask(task.id);
+    }
+    TaskChangeNotifier.instance.notifyChanged();
+    return removed;
   }
 
   /// How many tasks currently use [categoryId] — used before deleting a

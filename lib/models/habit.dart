@@ -74,6 +74,12 @@ class Habit {
 
   DateTime createdDate;
 
+  /// Where the user dragged this habit in the list, ascending, or null if
+  /// it has never been dragged. Habits carrying one sort ahead of those
+  /// that don't, so an untouched list stays in creation order and a habit
+  /// added after a reorder joins the end.
+  int? sortIndex;
+
   /// Archived habits keep their history but drop out of the daily list —
   /// the alternative to deleting something you'd rather stop doing without
   /// throwing away the record of having done it.
@@ -92,6 +98,7 @@ class Habit {
     this.reminderHour,
     this.reminderMinute,
     this.archived = false,
+    this.sortIndex,
   }) : activeWeekdays = activeWeekdays ?? <int>{};
 
   IconData get icon =>
@@ -124,6 +131,7 @@ class Habit {
     bool clearReminder = false,
     DateTime? createdDate,
     bool? archived,
+    int? sortIndex,
   }) {
     return Habit(
       id: id,
@@ -139,6 +147,7 @@ class Habit {
           clearReminder ? null : (reminderMinute ?? this.reminderMinute),
       createdDate: createdDate ?? this.createdDate,
       archived: archived ?? this.archived,
+      sortIndex: sortIndex ?? this.sortIndex,
     );
   }
 
@@ -155,6 +164,7 @@ class Habit {
         'reminderMinute': reminderMinute,
         'createdDate': createdDate.toIso8601String(),
         'archived': archived,
+        'sortIndex': sortIndex,
       };
 
   factory Habit.fromJson(Map<String, dynamic> json) => Habit(
@@ -172,6 +182,9 @@ class Habit {
         reminderMinute: json['reminderMinute'] as int?,
         createdDate: DateTime.parse(json['createdDate'] as String),
         archived: json['archived'] as bool? ?? false,
+        // Absent for habits stored before ordering existed, which is
+        // exactly what "never dragged" means.
+        sortIndex: json['sortIndex'] as int?,
       );
 
   String toJsonString() => jsonEncode(toJson());

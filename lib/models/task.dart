@@ -15,6 +15,21 @@ class Task {
   int? reminderHour; // 0-23, local time; null = no reminder
   int? reminderMinute; // 0-59
 
+  /// Where the user dragged this task within its group, ascending, or null
+  /// if it has never been dragged.
+  ///
+  /// Null rather than a default number on purpose: an index on every task
+  /// would silently retire priority as a sort key, since creation order
+  /// would always decide first. Only tasks the user has actually placed
+  /// carry one, and they sort ahead of the ones that don't — so an
+  /// untouched list still reads high-priority-first exactly as before, and
+  /// a task added after a reorder joins the end rather than the middle.
+  ///
+  /// Only ever compared against tasks in the same group (today's, a given
+  /// future date, done) — the sort settles the grouping first — so indices
+  /// are free to collide across groups.
+  int? sortIndex;
+
   Task({
     required this.id,
     required this.title,
@@ -28,6 +43,7 @@ class Task {
     this.recurrence,
     this.reminderHour,
     this.reminderMinute,
+    this.sortIndex,
   });
 
   bool get hasReminder => reminderHour != null && reminderMinute != null;
@@ -59,14 +75,6 @@ class Task {
     return sd.isBefore(today);
   }
 
-  /// Returns true if general task carried over from a previous day (no scheduled date)
-  bool get isCarriedOver {
-    if (isCompleted || scheduledDate != null) return false;
-    final today = _dateOnly(DateTime.now());
-    final taskDay = _dateOnly(createdDate);
-    return taskDay.isBefore(today);
-  }
-
   static DateTime _dateOnly(DateTime dt) =>
       DateTime(dt.year, dt.month, dt.day);
 
@@ -87,6 +95,7 @@ class Task {
     int? reminderHour,
     int? reminderMinute,
     bool clearReminder = false,
+    int? sortIndex,
   }) {
     return Task(
       id: id ?? this.id,
@@ -104,6 +113,7 @@ class Task {
           clearReminder ? null : (reminderHour ?? this.reminderHour),
       reminderMinute:
           clearReminder ? null : (reminderMinute ?? this.reminderMinute),
+      sortIndex: sortIndex ?? this.sortIndex,
     );
   }
 
@@ -121,6 +131,7 @@ class Task {
       'recurrence': recurrence?.toJson(),
       'reminderHour': reminderHour,
       'reminderMinute': reminderMinute,
+      'sortIndex': sortIndex,
     };
   }
 
@@ -144,6 +155,9 @@ class Task {
           : null,
       reminderHour: json['reminderHour'] as int?,
       reminderMinute: json['reminderMinute'] as int?,
+      // Absent for every task stored before ordering existed, which is
+      // exactly what "never dragged" means.
+      sortIndex: json['sortIndex'] as int?,
     );
   }
 

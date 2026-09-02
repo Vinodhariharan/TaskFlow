@@ -77,7 +77,18 @@ class HabitService {
     final all = await _loadAll();
     final visible =
         includeArchived ? all : all.where((h) => !h.archived).toList();
-    return visible..sort((a, b) => a.createdDate.compareTo(b.createdDate));
+    return visible
+      ..sort((a, b) {
+        // Where the user dragged it. Only dragged habits carry an index and
+        // they lead, so an untouched list stays in creation order and a
+        // habit added after a reorder joins the end.
+        final ai = a.sortIndex;
+        final bi = b.sortIndex;
+        if (ai != null && bi != null && ai != bi) return ai.compareTo(bi);
+        if (ai == null && bi != null) return 1;
+        if (ai != null && bi == null) return -1;
+        return a.createdDate.compareTo(b.createdDate);
+      });
   }
 
   /// The habits expected today — what the Habits tab lists.
@@ -159,6 +170,24 @@ class HabitService {
     await _saveLogs(logs);
     HabitChangeNotifier.instance.notifyChanged();
     await NotificationService.instance.cancelForHabit(id);
+  }
+
+  /// Writes a new manual order for [orderedIds], in the order the user just
+  /// dragged them into. Ids that no longer exist are skipped, since the list
+  /// may have been rebuilt while a drag was in flight.
+  Future<void> reorderHabits(List<String> orderedIds) async {
+    if (orderedIds.isEmpty) return;
+    final habits = await _loadAll();
+    final byId = {for (final h in habits) h.id: h};
+    final moving =
+        orderedIds.map((id) => byId[id]).whereType<Habit>().toList();
+    if (moving.isEmpty) return;
+
+    for (var i = 0; i < moving.length; i++) {
+      moving[i].sortIndex = i;
+    }
+    await _saveAll(habits);
+    HabitChangeNotifier.instance.notifyChanged();
   }
 
   // ── Log ────────────────────────────────────────────────────────────────

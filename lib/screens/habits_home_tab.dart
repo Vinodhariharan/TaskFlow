@@ -92,6 +92,21 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
     await _refresh();
   }
 
+  /// Long-press-drag reordering. The local list is updated first so the row
+  /// stays under the finger; the write follows and its change notification
+  /// reloads the same order back.
+  ///
+  /// onReorderItem rather than onReorder: it hands over a newIndex already
+  /// adjusted for the removed row, so there's no off-by-one to apply.
+  void _onReorder(int oldIndex, int newIndex) {
+    setState(() {
+      final habit = _habits.removeAt(oldIndex);
+      _habits.insert(newIndex, habit);
+    });
+    HapticFeedback.selectionClick();
+    _service.reorderHabits(_habits.map((h) => h.id).toList());
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateStr = DateFormat('EEEE, MMM d').format(DateTime.now());
@@ -170,12 +185,18 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
                       child: _EmptyHabits(onAdd: () => _openForm()),
                     )
                   else
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (ctx, i) {
-                          final habit = _habits[i];
-                          return _HabitTile(
-                            key: ValueKey(habit.id),
+                    // Long-press to drag. Habit rows carry no swipe gesture
+                    // of their own, so the delayed listener is free here —
+                    // unlike task tiles, where long-press means select.
+                    SliverReorderableList(
+                      itemCount: _habits.length,
+                      onReorderItem: _onReorder,
+                      itemBuilder: (ctx, i) {
+                        final habit = _habits[i];
+                        return ReorderableDelayedDragStartListener(
+                          key: ValueKey(habit.id),
+                          index: i,
+                          child: _HabitTile(
                             habit: habit,
                             count: _counts[habit.id] ?? 0,
                             streak: currentStreak(
@@ -183,10 +204,9 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
                             onTick: () => _onTick(habit),
                             onUntick: () => _onUntick(habit),
                             onOpen: () => _openDetail(habit),
-                          );
-                        },
-                        childCount: _habits.length,
-                      ),
+                          ),
+                        );
+                      },
                     ),
                   const SliverToBoxAdapter(child: SizedBox(height: 90)),
                 ],
@@ -204,8 +224,8 @@ class _HabitTile extends StatelessWidget {
   final VoidCallback onUntick;
   final VoidCallback onOpen;
 
+  // No key: the reorderable list keys the drag listener that wraps this.
   const _HabitTile({
-    super.key,
     required this.habit,
     required this.count,
     required this.streak,

@@ -187,6 +187,22 @@ class _HomeScreenState extends State<HomeScreen>
   late AnimationController _fabController;
   final Set<String> _selectedCategoryIds = {};
 
+  /// Tasks picked by long-pressing. Non-empty means the list is in
+  /// selection mode: taps pick rather than open. Only today's outstanding
+  /// tasks can be picked — the done and upcoming sections aren't things you
+  /// bulk-edit, and confining it keeps "reorder" unambiguous, since only
+  /// this list carries a manual order.
+  final Set<String> _selectedIds = {};
+
+  /// A snapshot of today's outstanding list while it's being dragged into
+  /// order, or null when it isn't. Held here rather than read from the
+  /// future so a dragged row moves under the finger instead of waiting on a
+  /// round trip through storage.
+  List<Task>? _reorderList;
+
+  bool get _selecting => _selectedIds.isNotEmpty;
+  bool get _reordering => _reorderList != null;
+
   @override
   void initState() {
     super.initState();
@@ -276,18 +292,43 @@ class _HomeScreenState extends State<HomeScreen>
     _refresh();
   }
 
-  Future<void> _deleteTask(Task task) async {
+  // ── Multi-select ───────────────────────────────────────────────────────
+
+  void _beginSelection(Task task) {
     HapticFeedback.mediumImpact();
-    await _taskService.deleteTask(task.id);
+    setState(() => _selectedIds.add(task.id));
+  }
+
+  void _toggleSelected(Task task) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (!_selectedIds.remove(task.id)) _selectedIds.add(task.id);
+    });
+  }
+
+  void _clearSelection() => setState(_selectedIds.clear);
+
+  /// Deletes everything picked as one action, so undo restores the whole
+  /// set rather than making the user tap Undo once per task.
+  Future<void> _deleteSelected() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    final removed = await _taskService.deleteTasks(ids);
+    setState(_selectedIds.clear);
     _refresh();
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
+    if (!mounted || removed.isEmpty) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 4),
-          content: Text('Task deleted',
-              style: TextStyle(color: context.textColor)),
+          content: Text(
+            removed.length == 1
+                ? 'Task deleted'
+                : '${removed.length} tasks deleted',
+            style: TextStyle(color: context.textColor),
+          ),
           backgroundColor: context.cardColor,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
@@ -296,18 +337,54 @@ class _HomeScreenState extends State<HomeScreen>
             label: 'Undo',
             textColor: AppColors.primary,
             onPressed: () async {
-              await _taskService.addTask(
-                title: task.title,
-                note: task.note,
-                priority: task.priority,
-                scheduledDate: task.scheduledDate,
-              );
+              for (final task in removed) {
+                await _taskService.addTask(
+                  title: task.title,
+                  note: task.note,
+                  priority: task.priority,
+                  scheduledDate: task.scheduledDate,
+                  categoryId: task.categoryId,
+                  recurrence: task.recurrence,
+                  reminderHour: task.reminderHour,
+                  reminderMinute: task.reminderMinute,
+                );
+              }
               _refresh();
             },
           ),
         ),
       );
-    }
+  }
+
+  // ── Reordering ─────────────────────────────────────────────────────────
+
+  /// Takes its own snapshot rather than having the built list threaded out
+  /// of the FutureBuilder.
+  Future<void> _beginReorder() async {
+    HapticFeedback.selectionClick();
+    final today = await _taskService.getTodayTasks();
+    if (!mounted) return;
+    setState(() {
+      _selectedIds.clear();
+      _reorderList = today.where((t) => !t.isCompleted).toList();
+    });
+  }
+
+  /// onReorderItem hands over a newIndex already adjusted for the removed
+  /// row, so there's no off-by-one to apply.
+  void _onReorderPending(int oldIndex, int newIndex) {
+    setState(() {
+      final task = _reorderList!.removeAt(oldIndex);
+      _reorderList!.insert(newIndex, task);
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _finishReorder() async {
+    final ids = _reorderList?.map((t) => t.id).toList() ?? const <String>[];
+    setState(() => _reorderList = null);
+    await _taskService.reorderTasks(ids);
+    _refresh();
   }
 
   @override
@@ -315,7 +392,22 @@ class _HomeScreenState extends State<HomeScreen>
     final now = DateTime.now();
     final dateStr = DateFormat('EEEE, MMM d').format(now);
 
-    return Scaffold(
+    // Back gets out of picking or dragging before it gets out of the app —
+    // otherwise the only way out of a mode entered by accident is to find
+    // the small × in the bar.
+    return PopScope(
+      canPop: !_selecting && !_reordering,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_reordering) {
+          // Keep the drags: they already happened on screen, and throwing
+          // them away on a back press would be the surprising choice.
+          _finishReorder();
+        } else {
+          _clearSelection();
+        }
+      },
+      child: Scaffold(
       backgroundColor: context.bgColor,
       body: SafeArea(
         child: FutureBuilder<List<Task>>(
@@ -330,8 +422,6 @@ class _HomeScreenState extends State<HomeScreen>
                     todayTasks.where((t) => !t.isCompleted).toList();
                 final completed =
                     todayTasks.where((t) => t.isCompleted).toList();
-                final carriedOver =
-                    pending.where((t) => t.isCarriedOver).length;
                 final overdueCount =
                     pending.where((t) => t.isOverdue).length;
                 final totalScheduledFuture = scheduledMap.values
@@ -403,14 +493,9 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ],
                             ),
-                            // Carry-over badge
-                            if (carriedOver > 0) ...[
-                              const SizedBox(height: 10),
-                              _CarryoverBadge(count: carriedOver),
-                            ],
                             // Overdue badge
                             if (overdueCount > 0) ...[
-                              const SizedBox(height: 6),
+                              const SizedBox(height: 10),
                               _OverdueBadge(count: overdueCount),
                             ],
                             const SizedBox(height: 8),
@@ -461,7 +546,30 @@ class _HomeScreenState extends State<HomeScreen>
                       )
                     else ...[
                       // ── Today Pending ────────────────────────────────
-                      if (pending.isNotEmpty) ...[
+                      if (_reordering) ...[
+                        _SectionHeader(
+                            label: 'Reorder', count: _reorderList!.length),
+                        SliverReorderableList(
+                          itemCount: _reorderList!.length,
+                          onReorderItem: _onReorderPending,
+                          itemBuilder: (ctx, i) {
+                            final task = _reorderList![i];
+                            // Drag from anywhere on the row: this is a mode
+                            // of its own, so there's nothing else a touch
+                            // could have meant.
+                            return ReorderableDragStartListener(
+                              key: ValueKey(task.id),
+                              index: i,
+                              child: _TaskTile(
+                                task: task,
+                                reordering: true,
+                                onToggle: () {},
+                                onOpen: () {},
+                              ),
+                            );
+                          },
+                        ),
+                      ] else if (pending.isNotEmpty) ...[
                         _SectionHeader(
                             label: 'To Do', count: pending.length),
                         SliverList(
@@ -469,8 +577,12 @@ class _HomeScreenState extends State<HomeScreen>
                             (ctx, i) => _TaskTile(
                               key: ValueKey(pending[i].id),
                               task: pending[i],
+                              selectionMode: _selecting,
+                              selected: _selectedIds.contains(pending[i].id),
+                              onLongPress: () => _beginSelection(pending[i]),
+                              onSelectToggle: () =>
+                                  _toggleSelected(pending[i]),
                               onToggle: () => _toggleTask(pending[i]),
-                              onDelete: () => _deleteTask(pending[i]),
                               onOpen: () => _openTask(pending[i]),
                             ),
                             childCount: pending.length,
@@ -479,7 +591,10 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
 
                       // ── Completed ────────────────────────────────────
-                      if (completed.isNotEmpty) ...[
+                      // Hidden while reordering: only today's outstanding
+                      // list carries a manual order, so showing the rest
+                      // would invite dragging things that can't move.
+                      if (completed.isNotEmpty && !_reordering) ...[
                         _SectionHeader(
                           label: 'Done',
                           count: completed.length,
@@ -501,7 +616,6 @@ class _HomeScreenState extends State<HomeScreen>
                               key: ValueKey(completed[i].id),
                               task: completed[i],
                               onToggle: () => _toggleTask(completed[i]),
-                              onDelete: () => _deleteTask(completed[i]),
                               onOpen: () => _openTask(completed[i]),
                             ),
                             childCount: completed.length,
@@ -510,7 +624,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
 
                       // ── Upcoming Scheduled ───────────────────────────
-                      if (scheduledMap.isNotEmpty) ...[
+                      if (scheduledMap.isNotEmpty && !_reordering) ...[
                         for (final entry in scheduledMap.entries) ...[
                           _DateDivider(
                             date: entry.key,
@@ -523,8 +637,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 task: entry.value[i],
                                 onToggle: () =>
                                     _toggleTask(entry.value[i]),
-                                onDelete: () =>
-                                    _deleteTask(entry.value[i]),
                                 onOpen: () => _openTask(entry.value[i]),
                               ),
                               childCount: entry.value.length,
@@ -558,19 +670,145 @@ class _HomeScreenState extends State<HomeScreen>
           },
         ),
       ),
-      floatingActionButton: ScaleTransition(
-        scale: Tween<double>(begin: 1.0, end: 0.9).animate(
-          CurvedAnimation(
-              parent: _fabController, curve: Curves.easeInOut),
+      // Adding is out of place mid-selection or mid-drag, and the action
+      // bar wants that corner.
+      floatingActionButton: (_selecting || _reordering)
+          ? null
+          : ScaleTransition(
+              scale: Tween<double>(begin: 1.0, end: 0.9).animate(
+                CurvedAnimation(
+                    parent: _fabController, curve: Curves.easeInOut),
+              ),
+              child: FloatingActionButton(
+                onPressed: _showAddTask,
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18)),
+                child: const Icon(Icons.add_rounded, size: 28),
+              ),
+            ),
+      bottomNavigationBar: _buildActionBar(context),
+      ),
+    );
+  }
+
+  /// The bar along the bottom while picking tasks or dragging them into
+  /// order. Null the rest of the time, so it costs no space.
+  Widget? _buildActionBar(BuildContext context) {
+    if (!_selecting && !_reordering) return null;
+
+    final children = _reordering
+        ? [
+            Icon(Icons.drag_indicator_rounded,
+                size: 18, color: context.mutedColor),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Drag to reorder',
+                style: TextStyle(
+                    color: context.secondaryTextColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            _BarAction(
+                icon: Icons.check_rounded,
+                label: 'Done',
+                onTap: _finishReorder),
+          ]
+        : [
+            GestureDetector(
+              onTap: _clearSelection,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(Icons.close_rounded,
+                    size: 20, color: context.mutedColor),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '${_selectedIds.length} selected',
+                style: TextStyle(
+                    color: context.textColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            // Reordering a filtered list would number only the tasks on
+            // screen and quietly shuffle the hidden ones, so it's offered
+            // on the full list only.
+            if (_selectedCategoryIds.isEmpty)
+              _BarAction(
+                icon: Icons.swap_vert_rounded,
+                label: 'Reorder',
+                onTap: _beginReorder,
+              ),
+            const SizedBox(width: 6),
+            _BarAction(
+              icon: Icons.delete_outline_rounded,
+              label: 'Delete',
+              danger: true,
+              onTap: _deleteSelected,
+            ),
+          ];
+
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: context.cardColor,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
         ),
-        child: FloatingActionButton(
-          onPressed: _showAddTask,
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18)),
-          child: const Icon(Icons.add_rounded, size: 28),
+        child: Row(children: children),
+      ),
+    );
+  }
+}
+
+/// One button in the selection/reorder bar.
+class _BarAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool danger;
+
+  const _BarAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? AppColors.danger : AppColors.primary;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                  color: color, fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ],
         ),
       ),
     );
@@ -607,40 +845,6 @@ class _ProgressBar extends StatelessWidget {
   }
 }
 
-class _CarryoverBadge extends StatelessWidget {
-  final int count;
-  const _CarryoverBadge({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: context.cardColor,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-            color: AppColors.primary.withValues(alpha: 0.3), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.replay_rounded,
-              size: 13, color: AppColors.primary),
-          const SizedBox(width: 6),
-          Text(
-            '$count task${count > 1 ? 's' : ''} carried over',
-            style: TextStyle(
-              color: context.secondaryTextColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OverdueBadge extends StatelessWidget {
   final int count;
   const _OverdueBadge({required this.count});
@@ -663,7 +867,7 @@ class _OverdueBadge extends StatelessWidget {
               size: 13, color: AppColors.overdueColor),
           const SizedBox(width: 6),
           Text(
-            '$count overdue task${count > 1 ? 's' : ''} carried over',
+            '$count overdue task${count > 1 ? 's' : ''}',
             style: const TextStyle(
               color: AppColors.overdueColor,
               fontSize: 12,
@@ -791,16 +995,36 @@ class _DateDivider extends StatelessWidget {
 class _TaskTile extends StatefulWidget {
   final Task task;
   final VoidCallback onToggle;
-  final VoidCallback onDelete;
+
   /// Opens the task's own page — where it can be edited.
   final VoidCallback onOpen;
+
+  /// Starts multi-select on this task. Null on rows that can't take part,
+  /// which is everything outside today's outstanding list.
+  final VoidCallback? onLongPress;
+
+  /// Adds or removes this task from an in-progress selection.
+  final VoidCallback? onSelectToggle;
+
+  /// True once any task is selected: the whole list switches to picking
+  /// rather than opening, so a stray tap can't navigate away mid-selection.
+  final bool selectionMode;
+  final bool selected;
+
+  /// Reorder mode strips the row back to something being dragged: no tap
+  /// targets, no chevron, just the title and a handle.
+  final bool reordering;
 
   const _TaskTile({
     super.key,
     required this.task,
     required this.onToggle,
-    required this.onDelete,
     required this.onOpen,
+    this.onLongPress,
+    this.onSelectToggle,
+    this.selectionMode = false,
+    this.selected = false,
+    this.reordering = false,
   });
 
   @override
@@ -808,14 +1032,12 @@ class _TaskTile extends StatefulWidget {
 }
 
 class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
-  // Same swipe-reveal-then-tap-icon delete pattern as ExpenseTile: swipe
-  // left caps at a fixed reveal width showing a delete icon behind the
-  // tile; tapping that icon deletes with no confirmation dialog.
-  static const _revealWidth = 72.0;
-
+  // Deleting used to live behind a left swipe on this tile. It moved to
+  // multi-select — long-press a task, pick as many as you like, delete the
+  // lot in one undoable go — which also frees the horizontal drag the
+  // swipe was eating.
   late AnimationController _checkController;
   late Animation<double> _checkScale;
-  late final AnimationController _dragController;
 
   @override
   void initState() {
@@ -825,54 +1047,37 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     _checkScale = Tween<double>(begin: 1.0, end: 0.85).animate(
         CurvedAnimation(
             parent: _checkController, curve: Curves.easeInOut));
-    _dragController = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 200));
   }
 
   @override
   void dispose() {
     _checkController.dispose();
-    _dragController.dispose();
     super.dispose();
   }
 
-  void _closeReveal() => _dragController.animateTo(0.0, curve: Curves.easeOut);
-
-  /// Tapping the row opens the task's page. Completing is the checkbox's job
-  /// (see [_onToggle]) — the row itself is navigation now that a task has a
-  /// page of its own.
+  /// Tapping the row opens the task's page — except while picking, when it
+  /// adds or removes this one instead. Completing is the checkbox's job
+  /// (see [_onToggle]).
   void _onTap() {
-    if (_dragController.value > 0) {
-      _closeReveal();
+    if (widget.reordering) return;
+    if (widget.selectionMode) {
+      widget.onSelectToggle?.call();
       return;
     }
     widget.onOpen();
   }
 
+  /// While picking, the leading circle selects rather than completes —
+  /// otherwise the obvious place to tap would silently finish a task the
+  /// user was only trying to select.
   void _onToggle() {
-    if (_dragController.value > 0) {
-      _closeReveal();
+    if (widget.reordering) return;
+    if (widget.selectionMode) {
+      widget.onSelectToggle?.call();
       return;
     }
     _checkController.forward().then((_) => _checkController.reverse());
     widget.onToggle();
-  }
-
-  void _handleDragUpdate(DragUpdateDetails details) {
-    final delta = details.primaryDelta ?? 0;
-    _dragController.value =
-        (_dragController.value - delta / _revealWidth).clamp(0.0, 1.0);
-  }
-
-  void _handleDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final open = velocity < -300 || (velocity <= 300 && _dragController.value > 0.5);
-    _dragController.animateTo(open ? 1.0 : 0.0, curve: Curves.easeOut);
-  }
-
-  void _handleDelete() {
-    HapticFeedback.mediumImpact();
-    widget.onDelete();
   }
 
   Color? _borderColor() {
@@ -882,13 +1087,16 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     return null;
   }
 
-  /// The tile's own surface colour. Any overdue/due-today tint must be
-  /// composited *over* the card colour rather than used on its own — a bare
-  /// 5%-alpha tint left the tile 95% transparent, so the red delete strip
-  /// sitting behind it in the Stack bled through on the right edge and the
-  /// rest of the tile showed the page background instead of the card.
+  /// The tile's own surface colour. Any tint must be composited *over* the
+  /// card colour rather than used on its own — a bare 5%-alpha tint would
+  /// leave the tile 95% transparent, showing the page background through
+  /// what should be a card.
   Color _surfaceColor(BuildContext context) {
     final task = widget.task;
+    if (widget.selected) {
+      return Color.alphaBlend(
+          AppColors.primary.withValues(alpha: 0.16), context.cardColor);
+    }
     if (task.isCompleted) return context.cardColor;
     final Color? tint = task.isOverdue
         ? AppColors.overdueColor.withValues(alpha: 0.05)
@@ -905,6 +1113,10 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     final isHigh = task.priority == TaskPriority.high;
     final borderColor = _borderColor();
     final surface = _surfaceColor(context);
+    // While picking, the leading circle reports selection rather than
+    // completion — same shape, different question.
+    final filled =
+        widget.selectionMode ? widget.selected : task.isCompleted;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -928,38 +1140,12 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Row(
-                children: [
-                  const Expanded(child: SizedBox()),
-                  GestureDetector(
-                    onTap: _handleDelete,
-                    child: Container(
-                      width: _revealWidth,
-                      color: AppColors.danger,
-                      alignment: Alignment.center,
-                      child: const Icon(Icons.delete_outline_rounded,
-                          color: Colors.white, size: 22),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            AnimatedBuilder(
-              animation: _dragController,
-              builder: (context, child) => Transform.translate(
-                offset: Offset(-_revealWidth * _dragController.value, 0),
-                child: child,
-              ),
-              child: GestureDetector(
-                onHorizontalDragUpdate: _handleDragUpdate,
-                onHorizontalDragEnd: _handleDragEnd,
-                child: Material(
+        child: Material(
                   color: surface,
                   child: InkWell(
                     onTap: _onTap,
+                    onLongPress:
+                        widget.reordering ? null : widget.onLongPress,
                     splashColor: AppColors.primary.withValues(alpha: 0.05),
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(6, 12, 16, 12),
@@ -981,17 +1167,17 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                         height: 22,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: task.isCompleted
+                          color: filled
                               ? AppColors.primary
                               : Colors.transparent,
                           border: Border.all(
-                            color: task.isCompleted
+                            color: filled
                                 ? AppColors.primary
                                 : context.subtleColor,
                             width: 1.5,
                           ),
                         ),
-                        child: task.isCompleted
+                        child: filled
                             ? const Icon(Icons.check_rounded,
                                 size: 14, color: Colors.white)
                             : null,
@@ -1007,11 +1193,6 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                         children: [
                           Row(
                             children: [
-                              if (task.isCarriedOver) ...[
-                                const Icon(Icons.replay_rounded,
-                                    size: 12, color: AppColors.primary),
-                                const SizedBox(width: 4),
-                              ],
                               if (task.isOverdue) ...[
                                 const Icon(Icons.warning_amber_rounded,
                                     size: 12,
@@ -1107,21 +1288,26 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                           ),
                         ),
                     ],
-                    // Points at the task's own page, where it can be edited.
+                    // A drag handle while reordering, the "opens its own
+                    // page" chevron otherwise, and nothing while picking —
+                    // where the leading circle already says what a tap does.
                     Padding(
                       padding: const EdgeInsets.only(left: 6),
-                      child: Icon(Icons.chevron_right_rounded,
-                          size: 20, color: context.subtleColor),
+                      child: Icon(
+                        widget.reordering
+                            ? Icons.drag_handle_rounded
+                            : Icons.chevron_right_rounded,
+                        size: 20,
+                        color: widget.selectionMode && !widget.reordering
+                            ? Colors.transparent
+                            : context.subtleColor,
+                      ),
                     ),
                   ],
                       ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
