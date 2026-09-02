@@ -39,7 +39,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
-            android:text="Open TaskFlow"
+            android:text="Open Upkeep"
             android:textColor="@color/widget_secondary_text"
             android:textSize="11sp"
             android:maxLines="1"

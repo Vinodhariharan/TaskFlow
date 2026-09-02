@@ -12,7 +12,7 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
-        android:label="taskflow"
+        android:label="Upkeep"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -54,7 +54,7 @@
         <receiver
             android:name=".TaskWidgetProvider"
             android:exported="true"
-            android:label="TaskFlow Tasks">
+            android:label="Upkeep Tasks">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -65,7 +65,7 @@
         <receiver
             android:name=".ExpenseWidgetProvider"
             android:exported="true"
-            android:label="TaskFlow Expenses">
+            android:label="Upkeep Expenses">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -94,7 +94,7 @@
         <receiver
             android:name=".HabitWidgetProvider"
             android:exported="true"
-            android:label="TaskFlow Habit">
+            android:label="Upkeep Habit">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -105,7 +105,7 @@
         <receiver
             android:name=".QuickAddWidgetProvider"
             android:exported="true"
-            android:label="TaskFlow Quick Add">
+            android:label="Upkeep Quick Add">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../services/notification_service.dart';
+import '../app_info.dart';
 
 /// Shows why reminders are or aren't able to fire, and lets the user send
 /// both an immediate and a scheduled test through the same code path a real
@@ -141,7 +142,7 @@ class _NotificationDiagnosticsScreenState
                   'Notifications allowed',
                   _diag!.notificationsEnabled,
                   whenFalse: 'Android is blocking all notifications from '
-                      'TaskFlow. Nothing can appear until this is on.',
+                      '$kAppName. Nothing can appear until this is on.',
                 ),
                 _Divider(),
                 _statusRow(
@@ -199,7 +200,7 @@ class _NotificationDiagnosticsScreenState
               const SizedBox(height: 12),
               Text(
                 'If the immediate one arrives but the timed one doesn\'t, the '
-                'problem is alarm scheduling — check that TaskFlow is exempt '
+                'problem is alarm scheduling — check that $kAppName is exempt '
                 'from battery optimisation in your phone\'s settings.',
                 style: TextStyle(
                     color: context.mutedColor, fontSize: 12, height: 1.4),

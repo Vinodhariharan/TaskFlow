@@ -9,6 +9,7 @@ import 'expense_widgets.dart';
 import 'export_expenses_screen.dart';
 import 'import_expenses_screen.dart';
 import 'task_category_management_screen.dart';
+import '../app_info.dart';
 
 class SettingsScreen extends StatefulWidget {
   final ThemeNotifier notifier;
@@ -257,7 +258,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 const _SettingsRow(
                   icon: Icons.info_outline_rounded,
-                  title: 'TaskFlow',
+                  title: kAppName,
                   subtitle: 'Version $_appVersion',
                 ),
                 _Divider(),

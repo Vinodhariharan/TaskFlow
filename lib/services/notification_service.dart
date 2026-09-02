@@ -4,6 +4,7 @@ import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 import '../models/habit.dart';
 import '../models/task.dart';
+import '../app_info.dart';
 
 /// A snapshot of everything that decides whether a reminder can actually
 /// fire, so Settings can show it instead of the user guessing why nothing
@@ -70,6 +71,10 @@ class NotificationService {
       channelDescription: _channelDescription,
       importance: Importance.high,
       priority: Priority.high,
+      // Named here too: the per-notification icon overrides the one from
+      // initialize(), and leaving it unset has been known to fall back to
+      // the app icon on some OEM builds.
+      icon: '@drawable/ic_stat_notify',
     ),
   );
 
@@ -149,7 +154,11 @@ class NotificationService {
     }
     await _plugin.initialize(
       const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // A dedicated white silhouette, not the launcher icon. Android
+        // masks the status bar icon to its alpha and tints it, so a
+        // full-colour launcher icon — which is what this passed until now —
+        // arrives as a featureless blob.
+        android: AndroidInitializationSettings('@drawable/ic_stat_notify'),
       ),
       onDidReceiveNotificationResponse: (response) =>
           _handleTap(response.payload),
@@ -424,7 +433,7 @@ class NotificationService {
     await init();
     await _plugin.show(
       _testNowId,
-      'TaskFlow test',
+      '$kAppName test',
       'Notifications are working. Scheduled reminders are separate — use the timed test for those.',
       _details,
     );
@@ -441,7 +450,7 @@ class NotificationService {
     final canExact = await _android?.canScheduleExactNotifications() ?? false;
     await _plugin.zonedSchedule(
       _testScheduledId,
-      'TaskFlow scheduled test',
+      '$kAppName scheduled test',
       'This is what a task reminder will look like.',
       tz.TZDateTime.from(when, tz.local),
       _details,

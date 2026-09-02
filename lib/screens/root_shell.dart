@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
+import '../app_info.dart';
+import '../app_mark.dart';
 import '../main.dart';
 import '../services/category_service.dart';
 import '../services/currency_settings.dart';
@@ -239,34 +241,50 @@ class _RootShellState extends State<RootShell> {
         bottom: false,
         child: Column(
           children: [
-            // Settings sits on its own rather than joining the bottom bar:
-            // it isn't a peer of the three sections, and giving it equal
-            // billing there would squeeze the tabs you actually live in.
-            Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 20, 0),
-                child: GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            SettingsScreen(notifier: widget.notifier),
-                      ),
-                    );
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: context.cardColor,
-                      borderRadius: BorderRadius.circular(12),
+            // The app's mark and name on the left, settings on the right.
+            // Both are chrome: each screen prints its own 32sp title just
+            // below, so the name here is kept small enough not to compete
+            // with it. Settings stays out of the bottom bar — it isn't a
+            // peer of the three sections, and giving it equal billing there
+            // would squeeze the tabs you actually live in.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(22, 8, 20, 0),
+              child: Row(
+                children: [
+                  AppMark(size: 21, color: AppColors.primary),
+                  const SizedBox(width: 9),
+                  Text(
+                    kAppName,
+                    style: TextStyle(
+                      color: context.textColor,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
                     ),
-                    child: Icon(Icons.settings_rounded,
-                        size: 18, color: context.mutedColor),
                   ),
-                ),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              SettingsScreen(notifier: widget.notifier),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: context.cardColor,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.settings_rounded,
+                          size: 18, color: context.mutedColor),
+                    ),
+                  ),
+                ],
               ),
             ),
             Expanded(

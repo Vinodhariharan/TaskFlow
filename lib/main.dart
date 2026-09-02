@@ -10,6 +10,7 @@ import 'screens/root_shell.dart';
 import 'screens/task_category_widgets.dart';
 import 'screens/task_detail_screen.dart';
 import 'screens/task_form_screen.dart';
+import 'app_info.dart';
 
 /// A single, persistent ScaffoldMessenger used for snackbars that need to
 /// survive a route push (e.g. deleting an expense right before navigating
@@ -72,7 +73,7 @@ class _ThemeNotifierWrapperState extends State<ThemeNotifierWrapper> {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: _notifier,
-      builder: (context, _) => TaskFlowApp(notifier: _notifier),
+      builder: (context, _) => UpkeepApp(notifier: _notifier),
     );
   }
 }
@@ -128,14 +129,14 @@ ThemeData _lightTheme() => ThemeData(
       useMaterial3: true,
     );
 
-class TaskFlowApp extends StatelessWidget {
+class UpkeepApp extends StatelessWidget {
   final ThemeNotifier notifier;
-  const TaskFlowApp({super.key, required this.notifier});
+  const UpkeepApp({super.key, required this.notifier});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TaskFlow',
+      title: kAppName,
       scaffoldMessengerKey: scaffoldMessengerKey,
       debugShowCheckedModeBanner: false,
       themeMode: notifier.mode,
