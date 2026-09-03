@@ -24,9 +24,7 @@ final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
-  final savedTheme = prefs.getString('theme_mode');
-  final initialMode =
-      savedTheme == 'light' ? ThemeMode.light : ThemeMode.dark;
+  final initialMode = themeModeFromStored(prefs.getString('theme_mode'));
   runApp(ThemeNotifierWrapper(initialMode: initialMode));
 }
 
@@ -34,17 +32,36 @@ void main() async {
 // Theme
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Reads the stored theme choice.
+///
+/// Anything unrecognised — including the absent value on a fresh install —
+/// means dark, which is what this app defaulted to before "system" was an
+/// option. Existing installs hold 'light' or 'dark' from when the setting
+/// was a two-way switch, and both still mean what they used to, so nobody's
+/// choice resets.
+ThemeMode themeModeFromStored(String? stored) => switch (stored) {
+      'light' => ThemeMode.light,
+      'system' => ThemeMode.system,
+      _ => ThemeMode.dark,
+    };
+
+String storedFromThemeMode(ThemeMode mode) => switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.system => 'system',
+      ThemeMode.dark => 'dark',
+    };
+
 class ThemeNotifier extends ChangeNotifier {
   ThemeMode _mode;
   ThemeNotifier(this._mode);
   ThemeMode get mode => _mode;
 
-  Future<void> toggle() async {
-    _mode = _mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+  Future<void> setMode(ThemeMode mode) async {
+    if (mode == _mode) return;
+    _mode = mode;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        'theme_mode', _mode == ThemeMode.light ? 'light' : 'dark');
+    await prefs.setString('theme_mode', storedFromThemeMode(mode));
   }
 }
 

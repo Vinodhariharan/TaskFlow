@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../main.dart';
 import '../services/currency_settings.dart';
 import '../services/expense_service.dart';
@@ -59,7 +60,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDark;
     return Scaffold(
       backgroundColor: context.bgColor,
       body: SafeArea(
@@ -96,15 +96,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _SectionLabel('APPEARANCE'),
             _SettingsCard(
               children: [
-                _SettingsRow(
-                  icon: isDark
-                      ? Icons.dark_mode_rounded
-                      : Icons.light_mode_rounded,
-                  title: 'Dark mode',
-                  trailing: Switch(
-                    value: isDark,
-                    activeThumbColor: AppColors.primary,
-                    onChanged: (_) => widget.notifier.toggle(),
+                // A switch could only ever say light or dark. Following the
+                // device is the third answer, and the one most people
+                // expect to exist.
+                ListenableBuilder(
+                  listenable: widget.notifier,
+                  builder: (context, _) => _ThemeModePicker(
+                    mode: widget.notifier.mode,
+                    onChanged: widget.notifier.setMode,
                   ),
                 ),
               ],
@@ -523,6 +522,95 @@ class _CurrencyPickerSheetState extends State<_CurrencyPickerSheet> {
                       },
                     ),
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Three-way theme choice: follow the device, or pin light or dark.
+class _ThemeModePicker extends StatelessWidget {
+  final ThemeMode mode;
+  final ValueChanged<ThemeMode> onChanged;
+
+  const _ThemeModePicker({required this.mode, required this.onChanged});
+
+  static const _options = <(ThemeMode, String, IconData)>[
+    (ThemeMode.system, 'System', Icons.brightness_auto_rounded),
+    (ThemeMode.light, 'Light', Icons.light_mode_rounded),
+    (ThemeMode.dark, 'Dark', Icons.dark_mode_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Theme',
+            style: TextStyle(
+              color: context.textColor,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              for (final (value, label, icon) in _options) ...[
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      onChanged(value);
+                    },
+                    behavior: HitTestBehavior.opaque,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        color: mode == value
+                            ? AppColors.primary.withValues(alpha: 0.14)
+                            : context.inputBg,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: mode == value
+                              ? AppColors.primary
+                              : Colors.transparent,
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            icon,
+                            size: 18,
+                            color: mode == value
+                                ? AppColors.primary
+                                : context.mutedColor,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              color: mode == value
+                                  ? AppColors.primary
+                                  : context.mutedColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                if (value != _options.last.$1) const SizedBox(width: 8),
+              ],
+            ],
           ),
         ],
       ),
