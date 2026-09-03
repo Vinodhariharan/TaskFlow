@@ -1,9 +1,13 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
+import '../models/expense.dart';
 import '../services/category_service.dart';
 import '../services/expense_service.dart';
+import 'all_expenses_screen.dart';
+import 'expense_detail_screen.dart';
 import 'expense_widgets.dart';
 
 enum _ChartMode { category, trend }
@@ -303,7 +307,13 @@ class _KpiDetailScreenState extends State<KpiDetailScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (_mode == _ChartMode.category) ...[
-                      _CategoryDonutCard(stats: stats, total: total),
+                      _CategoryDonutCard(
+                        stats: stats,
+                        total: total,
+                        rangeStart: _rangeStart,
+                        rangeEnd: _rangeEnd,
+                        expenseService: widget.expenseService,
+                      ),
                       const SizedBox(height: 24),
                       Text('BY CATEGORY',
                           style: TextStyle(
@@ -484,13 +494,143 @@ class _ComparisonToggle extends StatelessWidget {
 // Category mode: donut chart + total
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _CategoryDonutCard extends StatelessWidget {
+/// One arc of the donut. Held as data so the painter and the hit test read
+/// the same geometry — computing the angles twice is how a chart ends up
+/// selecting the slice next to the one you tapped.
+class _DonutSlice {
+  final String categoryId;
+  final double startAngle;
+  final double sweep;
+  const _DonutSlice(this.categoryId, this.startAngle, this.sweep);
+}
+
+List<_DonutSlice> _donutSlices(List<CategoryStat> stats, double total) {
+  if (total <= 0) return const [];
+  final slices = <_DonutSlice>[];
+  var startAngle = -pi / 2;
+  for (final s in stats) {
+    final sweep = (s.amount / total) * 2 * pi;
+    slices.add(_DonutSlice(s.categoryId, startAngle, sweep));
+    startAngle += sweep;
+  }
+  return slices;
+}
+
+class _CategoryDonutCard extends StatefulWidget {
   final List<CategoryStat> stats;
   final double total;
-  const _CategoryDonutCard({required this.stats, required this.total});
+  final DateTime rangeStart;
+  final DateTime rangeEnd;
+  final ExpenseService expenseService;
+
+  const _CategoryDonutCard({
+    required this.stats,
+    required this.total,
+    required this.rangeStart,
+    required this.rangeEnd,
+    required this.expenseService,
+  });
+
+  @override
+  State<_CategoryDonutCard> createState() => _CategoryDonutCardState();
+}
+
+class _CategoryDonutCardState extends State<_CategoryDonutCard> {
+  static const _size = 180.0;
+  static const _strokeWidth = 24.0;
+
+  String? _selectedId;
+  bool _expanded = false;
+  Future<TopExpensesResult>? _topFuture;
+
+  @override
+  void didUpdateWidget(covariant _CategoryDonutCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A new range or breakdown invalidates the selection: the slice under
+    // the finger a moment ago may not exist any more.
+    if (oldWidget.stats != widget.stats ||
+        oldWidget.rangeStart != widget.rangeStart ||
+        oldWidget.rangeEnd != widget.rangeEnd) {
+      _selectedId = null;
+      _expanded = false;
+      _topFuture = null;
+    }
+  }
+
+  /// Maps a tap inside the chart box to the slice under it, or null when
+  /// the tap lands in the hole, outside the ring, or on no slice at all.
+  void _handleTap(Offset local) {
+    final center = const Offset(_size / 2, _size / 2);
+    final outer = _size / 2;
+    final inner = outer - _strokeWidth;
+    final v = local - center;
+    final distance = v.distance;
+    if (distance < inner || distance > outer) return;
+
+    // atan2 gives -pi..pi from east; the chart starts at -pi/2 (north) and
+    // runs clockwise, which is the same direction screen angles increase.
+    var angle = atan2(v.dy, v.dx);
+    final slices = _donutSlices(widget.stats, widget.total);
+    for (final slice in slices) {
+      var delta = angle - slice.startAngle;
+      while (delta < 0) {
+        delta += 2 * pi;
+      }
+      if (delta <= slice.sweep) {
+        _select(slice.categoryId);
+        return;
+      }
+    }
+  }
+
+  void _select(String categoryId) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (_selectedId == categoryId) {
+        _selectedId = null;
+        _expanded = false;
+        _topFuture = null;
+      } else {
+        _selectedId = categoryId;
+        _expanded = false;
+        _topFuture = null;
+      }
+    });
+  }
+
+  void _toggleExpanded() {
+    final id = _selectedId;
+    if (id == null) return;
+    setState(() {
+      _expanded = !_expanded;
+      _topFuture ??= widget.expenseService.getTopExpensesInCategory(
+        categoryId: id,
+        startDate: widget.rangeStart,
+        endDate: widget.rangeEnd,
+      );
+    });
+  }
+
+  void _openFiltered() {
+    final id = _selectedId;
+    if (id == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AllExpensesScreen(
+          initialCategoryId: id,
+          initialDateRange:
+              DateTimeRange(start: widget.rangeStart, end: widget.rangeEnd),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final selectedStat = _selectedId == null
+        ? null
+        : widget.stats.where((s) => s.categoryId == _selectedId).firstOrNull;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -501,47 +641,217 @@ class _CategoryDonutCard extends StatelessWidget {
       child: Column(
         children: [
           SizedBox(
-            width: 180,
-            height: 180,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CustomPaint(
-                  size: const Size(180, 180),
-                  painter: _DonutChartPainter(stats: stats, total: total),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('TOTAL',
+            width: _size,
+            height: _size,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (d) => _handleTap(d.localPosition),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: const Size(_size, _size),
+                    painter: _DonutChartPainter(
+                      stats: widget.stats,
+                      total: widget.total,
+                      selectedId: _selectedId,
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        selectedStat == null
+                            ? 'TOTAL'
+                            : CategoryService.instance
+                                .getById(selectedStat.categoryId)
+                                .label
+                                .toUpperCase(),
                         style: TextStyle(
                           color: context.mutedColor,
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
                           letterSpacing: 1.0,
-                        )),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Text(
-                          formatCurrency(total, decimals: true),
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: context.textColor,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            formatCurrency(
+                                selectedStat?.amount ?? widget.total,
+                                decimals: true),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: context.textColor,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                      if (selectedStat != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${(widget.total == 0 ? 0 : selectedStat.amount / widget.total * 100).toStringAsFixed(0)}%'
+                          ' · ${selectedStat.count} item${selectedStat.count == 1 ? '' : 's'}',
+                          style: TextStyle(
+                            color: context.mutedColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
+          if (selectedStat == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Text(
+                'Tap a slice for its detail',
+                style: TextStyle(color: context.mutedColor, fontSize: 12),
+              ),
+            )
+          else ...[
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: _toggleExpanded,
+              behavior: HitTestBehavior.opaque,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _expanded ? 'Hide expenses' : 'View expenses',
+                    style: const TextStyle(
+                      color: kExpenseAccent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: kExpenseAccent,
+                  ),
+                ],
+              ),
+            ),
+            if (_expanded)
+              FutureBuilder<TopExpensesResult>(
+                future: _topFuture,
+                builder: (context, snap) {
+                  final result = snap.data;
+                  if (result == null) {
+                    return const Padding(
+                      padding: EdgeInsets.only(top: 16),
+                      child: SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      const SizedBox(height: 8),
+                      for (final e in result.items)
+                        _SliceExpenseRow(expense: e),
+                      if (result.totalCount > result.items.length) ...[
+                        const SizedBox(height: 10),
+                        GestureDetector(
+                          onTap: _openFiltered,
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            decoration: BoxDecoration(
+                              color: kExpenseAccent.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'View all ${result.totalCount}',
+                                style: const TextStyle(
+                                  color: kExpenseAccent,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  );
+                },
+              ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// One line in the slice drawer. Deliberately plainer than ExpenseTile —
+/// this is a peek, and tapping opens the full page.
+class _SliceExpenseRow extends StatelessWidget {
+  final Expense expense;
+  const _SliceExpenseRow({required this.expense});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ExpenseDetailScreen(expenseId: expense.id),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    expense.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: context.textColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 1),
+                  Text(
+                    DateFormat('MMM d, yyyy').format(expense.date),
+                    style:
+                        TextStyle(color: context.mutedColor, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              formatCurrency(expense.amount, decimals: true),
+              style: TextStyle(
+                  color: context.textColor,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -550,7 +860,12 @@ class _CategoryDonutCard extends StatelessWidget {
 class _DonutChartPainter extends CustomPainter {
   final List<CategoryStat> stats;
   final double total;
-  const _DonutChartPainter({required this.stats, required this.total});
+  final String? selectedId;
+  const _DonutChartPainter({
+    required this.stats,
+    required this.total,
+    this.selectedId,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -558,25 +873,37 @@ class _DonutChartPainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final radius = size.shortestSide / 2;
     const strokeWidth = 24.0;
-    final rect = Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
+    final rect =
+        Rect.fromCircle(center: center, radius: radius - strokeWidth / 2);
     final gap = stats.length > 1 ? 0.035 : 0.0;
-    var startAngle = -pi / 2;
-    for (final s in stats) {
-      final rawSweep = (s.amount / total) * 2 * pi;
-      final sweep = max(0.0, rawSweep - gap);
+
+    for (final slice in _donutSlices(stats, total)) {
+      final dimmed = selectedId != null && slice.categoryId != selectedId;
+      final selected = slice.categoryId == selectedId;
+      final colour =
+          CategoryService.instance.getById(slice.categoryId).color;
       final paint = Paint()
-        ..color = CategoryService.instance.getById(s.categoryId).color
+        // Unselected slices recede rather than disappear, so the whole
+        // shape still reads as a chart while one part is being inspected.
+        ..color = dimmed ? colour.withValues(alpha: 0.28) : colour
         ..style = PaintingStyle.stroke
-        ..strokeWidth = strokeWidth
+        ..strokeWidth = selected ? strokeWidth + 6 : strokeWidth
         ..strokeCap = StrokeCap.round;
-      canvas.drawArc(rect, startAngle, sweep, false, paint);
-      startAngle += rawSweep;
+      canvas.drawArc(
+        rect,
+        slice.startAngle,
+        max(0.0, slice.sweep - gap),
+        false,
+        paint,
+      );
     }
   }
 
   @override
   bool shouldRepaint(covariant _DonutChartPainter oldDelegate) =>
-      oldDelegate.stats != stats || oldDelegate.total != total;
+      oldDelegate.stats != stats ||
+      oldDelegate.total != total ||
+      oldDelegate.selectedId != selectedId;
 }
 
 /// Compact per-category row: icon, label, amount, and a percentage/count

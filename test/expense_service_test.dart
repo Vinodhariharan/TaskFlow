@@ -58,4 +58,62 @@ void main() {
     // The detail page can outlive the thing it is showing.
     expect(await service.getExpenseById(coffee.id), isNull);
   });
+
+  group('top expenses in a category', () {
+    Future<ExpenseService> mixed() async {
+      final service = ExpenseService();
+      Future<void> add(String t, double amt, String cat, int day) =>
+          service.addExpense(
+            title: t,
+            amount: amt,
+            categoryId: cat,
+            date: DateTime(2026, 9, day),
+          );
+      await add('Rent', 900, 'home', 1);
+      await add('Coffee', 5, 'food', 2);
+      await add('Groceries', 120, 'food', 3);
+      await add('Dinner', 60, 'food', 4);
+      // Outside the range asked for below.
+      await add('Old lunch', 999, 'food', 28);
+      return service;
+    }
+
+    test('returns biggest first, not newest first', () async {
+      final service = await mixed();
+      final result = await service.getTopExpensesInCategory(
+        categoryId: 'food',
+        startDate: DateTime(2026, 9, 1),
+        endDate: DateTime(2026, 9, 10),
+      );
+      expect(result.items.map((e) => e.title).toList(),
+          ['Groceries', 'Dinner', 'Coffee']);
+    });
+
+    test('respects the date range and ignores other categories', () async {
+      final service = await mixed();
+      final result = await service.getTopExpensesInCategory(
+        categoryId: 'food',
+        startDate: DateTime(2026, 9, 1),
+        endDate: DateTime(2026, 9, 10),
+      );
+      expect(result.items.any((e) => e.title == 'Old lunch'), isFalse);
+      expect(result.items.any((e) => e.title == 'Rent'), isFalse);
+      expect(result.totalCount, 3);
+    });
+
+    test('totalCount reports the whole set, not just what was returned',
+        () async {
+      final service = await mixed();
+      final result = await service.getTopExpensesInCategory(
+        categoryId: 'food',
+        startDate: DateTime(2026, 9, 1),
+        endDate: DateTime(2026, 9, 10),
+        limit: 2,
+      );
+      // Two shown, three matching — which is what tells the donut whether
+      // to offer "View all".
+      expect(result.items.length, 2);
+      expect(result.totalCount, 3);
+    });
+  });
 }

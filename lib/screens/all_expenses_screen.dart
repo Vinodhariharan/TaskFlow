@@ -13,7 +13,18 @@ import 'expense_widgets.dart';
 import 'selection_bar.dart';
 
 class AllExpensesScreen extends StatefulWidget {
-  const AllExpensesScreen({super.key});
+  /// Opens with this category already filtered — the donut's "view all"
+  /// lands here, and re-picking the filter by hand would be busywork.
+  final String? initialCategoryId;
+
+  /// Opens with this range already applied, for the same reason.
+  final DateTimeRange? initialDateRange;
+
+  const AllExpensesScreen({
+    super.key,
+    this.initialCategoryId,
+    this.initialDateRange,
+  });
 
   @override
   State<AllExpensesScreen> createState() => _AllExpensesScreenState();
@@ -56,6 +67,10 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialCategoryId != null) {
+      _selectedCategoryIds.add(widget.initialCategoryId!);
+    }
+    _dateRange = widget.initialDateRange;
     _scrollController.addListener(_onScroll);
     CategoryService.instance.load();
     // Any add/update/delete/undo/import from ANY expense screen fires this,

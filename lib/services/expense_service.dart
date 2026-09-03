@@ -15,6 +15,14 @@ class ExpensePage {
   const ExpensePage({required this.items, required this.hasMore});
 }
 
+/// The biggest expenses in one category, plus how many there are in all —
+/// the donut's slice drawer shows a handful and offers to open the rest.
+class TopExpensesResult {
+  final List<Expense> items;
+  final int totalCount;
+  const TopExpensesResult({required this.items, required this.totalCount});
+}
+
 class CategoryStat {
   final String categoryId;
   final double amount;
@@ -249,6 +257,38 @@ class ExpenseService {
     final to = (from + pageSize).clamp(0, filtered.length);
     final items = from < filtered.length ? filtered.sublist(from, to) : <Expense>[];
     return ExpensePage(items: items, hasMore: to < filtered.length);
+  }
+
+  /// The largest expenses in one category over a range, biggest first.
+  ///
+  /// Sorted by amount rather than date, unlike queryExpenses: the question
+  /// this answers is "what did the money go on", where the big ones are the
+  /// interesting ones. totalCount reports the whole matching set, so the
+  /// caller knows whether there is anything beyond the handful it asked
+  /// for.
+  Future<TopExpensesResult> getTopExpensesInCategory({
+    required String categoryId,
+    DateTime? startDate,
+    DateTime? endDate,
+    int limit = 6,
+  }) async {
+    final all = await _loadAll();
+    final start = startDate != null ? _dateOnly(startDate) : null;
+    final end = endDate != null ? _dateOnly(endDate) : null;
+
+    final matching = all.where((e) {
+      if (e.categoryId != categoryId) return false;
+      final d = _dateOnly(e.date);
+      if (start != null && d.isBefore(start)) return false;
+      if (end != null && d.isAfter(end)) return false;
+      return true;
+    }).toList()
+      ..sort((a, b) => b.amount.compareTo(a.amount));
+
+    return TopExpensesResult(
+      items: matching.take(limit).toList(),
+      totalCount: matching.length,
+    );
   }
 
   /// Per-category spend + count within an optional date range, sorted by
