@@ -13,6 +13,7 @@ import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
 import '../services/habit_change_notifier.dart';
 import '../services/habit_service.dart';
+import '../services/header_scroll_notifier.dart';
 import '../services/notification_service.dart';
 import '../services/settings_service.dart';
 import '../services/task_change_notifier.dart';
@@ -285,16 +286,43 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
                 children: [
                   AppMark(size: 21, color: AppColors.primary),
                   const SizedBox(width: 9),
-                  Text(
-                    kAppName,
-                    style: TextStyle(
-                      color: context.textColor,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.2,
+                  // The app name until the screen's own title scrolls away,
+                  // then the title itself — the two never share the row, so
+                  // neither has to shrink to accommodate the other.
+                  Expanded(
+                    child: ListenableBuilder(
+                      listenable: HeaderScrollNotifier.instance,
+                      builder: (context, _) {
+                        final screenId = order[_page];
+                        final collapsed =
+                            HeaderScrollNotifier.instance.isCollapsed(screenId);
+                        final title =
+                            HeaderScrollNotifier.instance.titleFor(screenId);
+                        final label =
+                            collapsed && title.isNotEmpty ? title : kAppName;
+                        return AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          transitionBuilder: (child, animation) => FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                          child: Text(
+                            label,
+                            key: ValueKey(label),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: context.textColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: () {
                       HapticFeedback.selectionClick();

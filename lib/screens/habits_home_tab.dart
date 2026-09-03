@@ -6,6 +6,8 @@ import '../models/habit.dart';
 import '../models/habit_stats.dart';
 import '../services/habit_change_notifier.dart';
 import '../services/habit_service.dart';
+import '../services/header_scroll_notifier.dart';
+import 'root_shell.dart';
 import 'habit_detail_screen.dart';
 import 'habit_form_screen.dart';
 
@@ -135,7 +137,18 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
         top: false,
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : CustomScrollView(
+            : NotificationListener<ScrollNotification>(
+                onNotification: (n) {
+                  if (n.metrics.axis == Axis.vertical) {
+                    HeaderScrollNotifier.instance.report(
+                      screenId: kHabitsScreen,
+                      title: 'Habits',
+                      offset: n.metrics.pixels,
+                    );
+                  }
+                  return false;
+                },
+                child: CustomScrollView(
                 slivers: [
                   SliverToBoxAdapter(
                     child: Padding(
@@ -258,6 +271,7 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
                   ],
                   const SliverToBoxAdapter(child: SizedBox(height: 90)),
                 ],
+                ),
               ),
       ),
     );

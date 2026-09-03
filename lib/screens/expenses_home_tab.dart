@@ -7,8 +7,10 @@ import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'all_expenses_screen.dart';
+import '../services/header_scroll_notifier.dart';
 import 'expense_detail_screen.dart';
 import 'expense_widgets.dart';
+import 'root_shell.dart';
 import 'selection_bar.dart';
 import 'kpi_detail_screen.dart';
 
@@ -193,7 +195,18 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
 
             return Stack(
               children: [
-                CustomScrollView(
+                NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n.metrics.axis == Axis.vertical) {
+                      HeaderScrollNotifier.instance.report(
+                        screenId: kExpensesScreen,
+                        title: 'Expenses',
+                        offset: n.metrics.pixels,
+                      );
+                    }
+                    return false;
+                  },
+                  child: CustomScrollView(
               controller: _scrollController,
               physics: const BouncingScrollPhysics(),
               slivers: [
@@ -389,6 +402,7 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                   const SliverToBoxAdapter(child: SizedBox(height: 100)),
                 ],
               ],
+                ),
                 ),
                 if (_selecting)
                   Positioned(

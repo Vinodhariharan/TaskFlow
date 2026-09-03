@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'models/task.dart';
 import 'services/task_category_service.dart';
 import 'services/task_change_notifier.dart';
+import 'services/header_scroll_notifier.dart';
 import 'services/task_service.dart';
 import 'screens/selection_bar.dart';
 import 'screens/root_shell.dart';
@@ -222,6 +223,37 @@ class _HomeScreenState extends State<HomeScreen>
   bool get _selecting => _selectedIds.isNotEmpty;
   bool get _reordering => _reorderList != null;
 
+  /// Tasks currently playing their exit animation.
+  ///
+  /// Ticking or deleting used to be instant: the future was replaced and
+  /// the rows snapped into new positions. The row now collapses and fades
+  /// first, and only then does the write happen and the list close up — so
+  /// the change is something you watch rather than something you notice
+  /// afterwards.
+  final Set<String> _exiting = {};
+
+  /// Long enough to read, short enough to tick five in a row. Zero when the
+  /// platform asks for reduced motion, which turns the whole thing back
+  /// into the instant behaviour on purpose.
+  Duration _exitDuration(BuildContext context) =>
+      MediaQuery.of(context).disableAnimations
+          ? Duration.zero
+          : const Duration(milliseconds: 220);
+
+  /// Runs [action] after the rows for [ids] have animated out.
+  Future<void> _withExitAnimation(
+      Iterable<String> ids, Future<void> Function() action) async {
+    final duration = _exitDuration(context);
+    if (duration > Duration.zero) {
+      setState(() => _exiting.addAll(ids));
+      await Future<void>.delayed(duration);
+      if (!mounted) return;
+    }
+    await action();
+    if (!mounted) return;
+    setState(() => _exiting.removeAll(ids));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -307,8 +339,11 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _toggleTask(Task task) async {
     HapticFeedback.lightImpact();
-    await _taskService.toggleComplete(task.id);
-    _refresh();
+    // The checkbox fills first, then the row leaves for the other section.
+    await _withExitAnimation([task.id], () async {
+      await _taskService.toggleComplete(task.id);
+      _refresh();
+    });
   }
 
   // ── Multi-select ───────────────────────────────────────────────────────
@@ -333,9 +368,12 @@ class _HomeScreenState extends State<HomeScreen>
     final ids = _selectedIds.toList();
     if (ids.isEmpty) return;
     HapticFeedback.mediumImpact();
-    final removed = await _taskService.deleteTasks(ids);
-    setState(_selectedIds.clear);
-    _refresh();
+    late List<Task> removed;
+    await _withExitAnimation(ids, () async {
+      removed = await _taskService.deleteTasks(ids);
+      setState(_selectedIds.clear);
+      _refresh();
+    });
     if (!mounted || removed.isEmpty) return;
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
@@ -447,7 +485,18 @@ class _HomeScreenState extends State<HomeScreen>
                 final isEmpty =
                     todayTasks.isEmpty && scheduledMap.isEmpty;
 
-                return CustomScrollView(
+                return NotificationListener<ScrollNotification>(
+                  onNotification: (n) {
+                    if (n.metrics.axis == Axis.vertical) {
+                      HeaderScrollNotifier.instance.report(
+                        screenId: kTasksScreen,
+                        title: 'My Tasks',
+                        offset: n.metrics.pixels,
+                      );
+                    }
+                    return false;
+                  },
+                  child: CustomScrollView(
                   physics: const BouncingScrollPhysics(),
                   slivers: [
                     // ── Header ──────────────────────────────────────────
@@ -586,6 +635,8 @@ class _HomeScreenState extends State<HomeScreen>
                             (ctx, i) => _TaskTile(
                               key: ValueKey(pending[i].id),
                               task: pending[i],
+                              exiting: _exiting.contains(pending[i].id),
+                              exitDuration: _exitDuration(context),
                               selectionMode: _selecting,
                               selected: _selectedIds.contains(pending[i].id),
                               onLongPress: () => _beginSelection(pending[i]),
@@ -624,6 +675,8 @@ class _HomeScreenState extends State<HomeScreen>
                             (ctx, i) => _TaskTile(
                               key: ValueKey(completed[i].id),
                               task: completed[i],
+                              exiting: _exiting.contains(completed[i].id),
+                              exitDuration: _exitDuration(context),
                               onToggle: () => _toggleTask(completed[i]),
                               onOpen: () => _openTask(completed[i]),
                             ),
@@ -673,6 +726,7 @@ class _HomeScreenState extends State<HomeScreen>
                           child: SizedBox(height: 100)),
                     ],
                   ],
+                  ),
                 );
               },
             );
@@ -903,6 +957,13 @@ class _TaskTile extends StatefulWidget {
   /// targets, no chevron, just the title and a handle.
   final bool reordering;
 
+  /// Playing its way off the list — collapsing and fading before the write
+  /// that removes it actually lands.
+  final bool exiting;
+
+  /// How long that takes. Zero when the platform asks for reduced motion.
+  final Duration exitDuration;
+
   const _TaskTile({
     super.key,
     required this.task,
@@ -913,6 +974,8 @@ class _TaskTile extends StatefulWidget {
     this.selectionMode = false,
     this.selected = false,
     this.reordering = false,
+    this.exiting = false,
+    this.exitDuration = const Duration(milliseconds: 220),
   });
 
   @override
@@ -996,7 +1059,19 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     final filled =
         widget.selectionMode ? widget.selected : task.isCompleted;
 
-    return Container(
+    // AnimatedSize collapses the row's height while AnimatedOpacity fades
+    // it; the align keeps it pinned to the top as it shrinks, so it looks
+    // like the list closing over it rather than the row sliding upward.
+    return AnimatedSize(
+      duration: widget.exitDuration,
+      curve: Curves.easeInOut,
+      alignment: Alignment.topCenter,
+      child: AnimatedOpacity(
+        duration: widget.exitDuration,
+        opacity: widget.exiting ? 0 : 1,
+        child: SizedBox(
+          height: widget.exiting ? 0 : null,
+          child: Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
@@ -1177,6 +1252,9 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
+      ),
+          ),
+        ),
       ),
     );
   }
