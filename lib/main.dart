@@ -6,6 +6,7 @@ import 'models/task.dart';
 import 'services/task_category_service.dart';
 import 'services/task_change_notifier.dart';
 import 'services/task_service.dart';
+import 'screens/selection_bar.dart';
 import 'screens/root_shell.dart';
 import 'screens/task_category_widgets.dart';
 import 'screens/task_detail_screen.dart';
@@ -423,8 +424,6 @@ class _HomeScreenState extends State<HomeScreen>
                     todayTasks.where((t) => !t.isCompleted).toList();
                 final completed =
                     todayTasks.where((t) => t.isCompleted).toList();
-                final overdueCount =
-                    pending.where((t) => t.isOverdue).length;
                 final totalScheduledFuture = scheduledMap.values
                     .fold(0, (sum, list) => sum + list.length);
 
@@ -494,11 +493,6 @@ class _HomeScreenState extends State<HomeScreen>
                                 ),
                               ],
                             ),
-                            // Overdue badge
-                            if (overdueCount > 0) ...[
-                              const SizedBox(height: 10),
-                              _OverdueBadge(count: overdueCount),
-                            ],
                           ],
                         ),
                       ),
@@ -697,157 +691,62 @@ class _HomeScreenState extends State<HomeScreen>
   Widget? _buildActionBar(BuildContext context) {
     if (!_selecting && !_reordering) return null;
 
-    final children = _reordering
-        ? [
-            Icon(Icons.drag_indicator_rounded,
-                size: 18, color: context.mutedColor),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Drag to reorder',
-                style: TextStyle(
-                    color: context.secondaryTextColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-            _BarAction(
-                icon: Icons.check_rounded,
-                label: 'Done',
-                onTap: _finishReorder),
-          ]
-        : [
-            GestureDetector(
-              onTap: _clearSelection,
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Icon(Icons.close_rounded,
-                    size: 20, color: context.mutedColor),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '${_selectedIds.length} selected',
-                style: TextStyle(
-                    color: context.textColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-            // Reordering a filtered list would number only the tasks on
-            // screen and quietly shuffle the hidden ones, so it's offered
-            // on the full list only.
-            if (_selectedCategoryIds.isEmpty)
-              _BarAction(
-                icon: Icons.swap_vert_rounded,
-                label: 'Reorder',
-                onTap: _beginReorder,
-              ),
-            const SizedBox(width: 6),
-            _BarAction(
-              icon: Icons.delete_outline_rounded,
-              label: 'Delete',
-              danger: true,
-              onTap: _deleteSelected,
-            ),
-          ];
-
-    return SafeArea(
-      top: false,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: context.cardColor,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-        ),
-        child: Row(children: children),
-      ),
-    );
-  }
-}
-
-/// One button in the selection/reorder bar.
-class _BarAction extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool danger;
-
-  const _BarAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.danger = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = danger ? AppColors.danger : AppColors.primary;
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                  color: color, fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Widgets
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _OverdueBadge extends StatelessWidget {
-  final int count;
-  const _OverdueBadge({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.overdueColor.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-            color: AppColors.overdueColor.withValues(alpha: 0.35),
-            width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.warning_amber_rounded,
-              size: 13, color: AppColors.overdueColor),
-          const SizedBox(width: 6),
-          Text(
-            '$count overdue task${count > 1 ? 's' : ''}',
-            style: const TextStyle(
-              color: AppColors.overdueColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-            ),
+    if (_reordering) {
+      return SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.cardColor,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
           ),
-        ],
-      ),
+          child: Row(
+            children: [
+              Icon(Icons.drag_indicator_rounded,
+                  size: 18, color: context.mutedColor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Drag to reorder',
+                  style: TextStyle(
+                      color: context.secondaryTextColor,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600),
+                ),
+              ),
+              BarAction(
+                  icon: Icons.check_rounded,
+                  label: 'Done',
+                  onTap: _finishReorder),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SelectionBar(
+      label: '${_selectedIds.length} selected',
+      onClose: _clearSelection,
+      actions: [
+        // Reordering a filtered list would number only the tasks on screen
+        // and quietly shuffle the hidden ones, so it's offered on the full
+        // list only.
+        if (_selectedCategoryIds.isEmpty)
+          BarAction(
+            icon: Icons.swap_vert_rounded,
+            label: 'Reorder',
+            onTap: _beginReorder,
+          ),
+        const SizedBox(width: 6),
+        BarAction(
+          icon: Icons.delete_outline_rounded,
+          label: 'Delete',
+          danger: true,
+          onTap: _deleteSelected,
+        ),
+      ],
     );
   }
 }

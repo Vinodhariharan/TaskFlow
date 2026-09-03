@@ -143,6 +143,32 @@ class ExpenseService {
     ExpenseChangeNotifier.instance.notifyChanged();
   }
 
+  /// One expense by id, or null once it's gone — used by the detail page,
+  /// which can outlive the thing it's showing if it's deleted from
+  /// elsewhere.
+  Future<Expense?> getExpenseById(String id) async {
+    final all = await _loadAll();
+    for (final e in all) {
+      if (e.id == id) return e;
+    }
+    return null;
+  }
+
+  /// Deletes several in one load+save, so a multi-select delete is a single
+  /// write and a single undoable action rather than N of each. Returns what
+  /// was removed, so the caller can offer to put it back.
+  Future<List<Expense>> deleteExpenses(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return const [];
+    final all = await _loadAll();
+    final removed = all.where((e) => idSet.contains(e.id)).toList();
+    if (removed.isEmpty) return const [];
+    all.removeWhere((e) => idSet.contains(e.id));
+    await _saveAll(all);
+    ExpenseChangeNotifier.instance.notifyChanged();
+    return removed;
+  }
+
   /// Bulk-append pre-built expenses (e.g. from a CSV import) in one save,
   /// instead of one load+save cycle per expense.
   Future<void> importExpenses(List<Expense> expenses) async {

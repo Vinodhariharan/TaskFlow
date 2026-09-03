@@ -7,9 +7,10 @@ import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
 import 'add_edit_expense_sheet.dart';
 import 'all_expenses_screen.dart';
+import 'expense_detail_screen.dart';
 import 'expense_widgets.dart';
+import 'selection_bar.dart';
 import 'kpi_detail_screen.dart';
-import 'view_expense_sheet.dart';
 
 class ExpensesHomeTab extends StatefulWidget {
   const ExpensesHomeTab({super.key});
@@ -27,6 +28,11 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
   bool _hasMoreRecent = false;
   bool _navigated = false;
   double _pullProgress = 0.0;
+
+  /// Expenses picked by long-pressing. Non-empty means the list is in
+  /// selection mode: taps pick rather than open.
+  final Set<String> _selectedIds = {};
+  bool get _selecting => _selectedIds.isNotEmpty;
 
   @override
   void initState() {
@@ -107,55 +113,69 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
     );
   }
 
-  Future<void> _showViewExpense(Expense expense) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => ViewExpenseSheet(
-        expense: expense,
-        onEdit: () {
-          Navigator.of(sheetContext).pop();
-          _showAddExpense(editExpense: expense);
-        },
+  Future<void> _openExpense(Expense expense) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExpenseDetailScreen(expenseId: expense.id),
       ),
     );
   }
 
-  Future<void> _deleteExpense(Expense expense) async {
+  void _beginSelection(Expense expense) {
     HapticFeedback.mediumImpact();
-    // No explicit refresh needed — deleteExpense notifies internally.
-    await _expenseService.deleteExpense(expense.id);
-    if (mounted) {
-      // See the matching comment in all_expenses_screen.dart — the app-wide
-      // scaffoldMessengerKey keeps this snackbar showing consistently across
-      // both expense screens instead of depending on ScaffoldMessenger.of().
-      scaffoldMessengerKey.currentState!
-        ..clearSnackBars()
-        ..showSnackBar(
+    setState(() => _selectedIds.add(expense.id));
+  }
+
+  void _toggleSelected(Expense expense) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (!_selectedIds.remove(expense.id)) _selectedIds.add(expense.id);
+    });
+  }
+
+  void _clearSelection() => setState(_selectedIds.clear);
+
+  /// Deletes everything picked as one action, so undo restores the whole set
+  /// rather than asking for a tap per expense.
+  Future<void> _deleteSelected() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    final removed = await _expenseService.deleteExpenses(ids);
+    setState(_selectedIds.clear);
+    if (!mounted || removed.isEmpty) return;
+    scaffoldMessengerKey.currentState!
+      ..clearSnackBars()
+      ..showSnackBar(
         SnackBar(
           duration: const Duration(seconds: 4),
-          content: Text('Expense deleted',
-              style: TextStyle(color: context.textColor)),
+          content: Text(
+            removed.length == 1
+                ? 'Expense deleted'
+                : '${removed.length} expenses deleted',
+            style: TextStyle(color: context.textColor),
+          ),
           backgroundColor: context.cardColor,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           action: SnackBarAction(
             label: 'Undo',
             textColor: kExpenseAccent,
             onPressed: () async {
-              await _expenseService.addExpense(
-                title: expense.title,
-                amount: expense.amount,
-                categoryId: expense.categoryId,
-                date: expense.date,
-                note: expense.note,
-              );
+              for (final e in removed) {
+                await _expenseService.addExpense(
+                  title: e.title,
+                  amount: e.amount,
+                  categoryId: e.categoryId,
+                  date: e.date,
+                  note: e.note,
+                );
+              }
             },
           ),
         ),
       );
-    }
   }
 
   @override
@@ -357,8 +377,11 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                       (ctx, i) => ExpenseTile(
                         key: ValueKey(recent[i].id),
                         expense: recent[i],
-                        onTap: () => _showViewExpense(recent[i]),
-                        onDelete: () => _deleteExpense(recent[i]),
+                        selectionMode: _selecting,
+                        selected: _selectedIds.contains(recent[i].id),
+                        onLongPress: () => _beginSelection(recent[i]),
+                        onSelectToggle: () => _toggleSelected(recent[i]),
+                        onTap: () => _openExpense(recent[i]),
                       ),
                       childCount: recent.length,
                     ),
@@ -367,7 +390,25 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                 ],
               ],
                 ),
-                if (_pullProgress > 0)
+                if (_selecting)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: SelectionBar(
+                      label: '${_selectedIds.length} selected',
+                      onClose: _clearSelection,
+                      actions: [
+                        BarAction(
+                          icon: Icons.delete_outline_rounded,
+                          label: 'Delete',
+                          danger: true,
+                          onTap: _deleteSelected,
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_pullProgress > 0 && !_selecting)
                   Positioned(
                     left: 0,
                     right: 0,

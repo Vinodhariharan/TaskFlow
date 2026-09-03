@@ -8,9 +8,9 @@ import '../models/expense.dart';
 import '../services/category_service.dart';
 import '../services/expense_change_notifier.dart';
 import '../services/expense_service.dart';
-import 'add_edit_expense_sheet.dart';
+import 'expense_detail_screen.dart';
 import 'expense_widgets.dart';
-import 'view_expense_sheet.dart';
+import 'selection_bar.dart';
 
 class AllExpensesScreen extends StatefulWidget {
   const AllExpensesScreen({super.key});
@@ -30,6 +30,11 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
 
   final Set<String> _selectedCategoryIds = {};
   DateTimeRange? _dateRange;
+
+  /// Expenses picked by long-pressing. Non-empty means the list is in
+  /// selection mode: taps pick rather than open.
+  final Set<String> _selectedIds = {};
+  bool get _selecting => _selectedIds.isNotEmpty;
 
   List<Expense> _items = [];
   int _page = 0;
@@ -184,78 +189,79 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
     }
   }
 
-  Future<void> _showEditExpense(Expense expense) async {
-    // No explicit reload needed after this — add/update notifies
-    // ExpenseChangeNotifier internally, which this screen listens to.
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => AddEditExpenseSheet(
-          expenseService: _expenseService, editExpense: expense),
-    );
-  }
-
-  Future<void> _showViewExpense(Expense expense) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) => ViewExpenseSheet(
-        expense: expense,
-        onEdit: () {
-          Navigator.of(sheetContext).pop();
-          _showEditExpense(expense);
-        },
+  Future<void> _openExpense(Expense expense) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ExpenseDetailScreen(expenseId: expense.id),
       ),
     );
   }
 
-  Future<void> _deleteExpense(Expense expense) async {
+  void _beginSelection(Expense expense) {
     HapticFeedback.mediumImpact();
-    await _expenseService.deleteExpense(expense.id);
-    // Removed locally right away for instant feedback rather than waiting
-    // on the ExpenseChangeNotifier round-trip (which still fires, for other
-    // screens, and will silently confirm the same result here).
-    if (mounted) setState(() => _items.removeWhere((e) => e.id == expense.id));
-    _loadMonthlyTotals();
-    if (mounted) {
-      // Routed through the app-wide scaffoldMessengerKey (not
-      // ScaffoldMessenger.of(context)) so the Undo snackbar reliably shows
-      // up regardless of which expense screen triggered the delete and
-      // which one is on top when it's shown.
-      scaffoldMessengerKey.currentState!
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            duration: const Duration(seconds: 4),
-            content: Text('Expense deleted',
-                style: TextStyle(color: context.textColor)),
-            backgroundColor: context.cardColor,
-            behavior: SnackBarBehavior.floating,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            action: SnackBarAction(
-              label: 'Undo',
-              textColor: kExpenseAccent,
-              onPressed: () async {
-                await _expenseService.addExpense(
-                  title: expense.title,
-                  amount: expense.amount,
-                  categoryId: expense.categoryId,
-                  date: expense.date,
-                  note: expense.note,
-                );
-              },
-            ),
+    setState(() => _selectedIds.add(expense.id));
+  }
+
+  void _toggleSelected(Expense expense) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      if (!_selectedIds.remove(expense.id)) _selectedIds.add(expense.id);
+    });
+  }
+
+  void _clearSelection() => setState(_selectedIds.clear);
+
+  /// Deletes everything picked as one action, so undo restores the whole set
+  /// rather than asking for a tap per expense.
+  Future<void> _deleteSelected() async {
+    final ids = _selectedIds.toList();
+    if (ids.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    final removed = await _expenseService.deleteExpenses(ids);
+    setState(_selectedIds.clear);
+    if (!mounted || removed.isEmpty) return;
+    scaffoldMessengerKey.currentState!
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 4),
+          content: Text(
+            removed.length == 1
+                ? 'Expense deleted'
+                : '${removed.length} expenses deleted',
+            style: TextStyle(color: context.textColor),
           ),
-        );
-    }
+          backgroundColor: context.cardColor,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          action: SnackBarAction(
+            label: 'Undo',
+            textColor: kExpenseAccent,
+            onPressed: () async {
+              for (final e in removed) {
+                await _expenseService.addExpense(
+                  title: e.title,
+                  amount: e.amount,
+                  categoryId: e.categoryId,
+                  date: e.date,
+                  note: e.note,
+                );
+              }
+            },
+          ),
+        ),
+      );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _clearSelection();
+      },
+      child: Scaffold(
       backgroundColor: context.bgColor,
       body: SafeArea(
         child: Column(
@@ -494,8 +500,11 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
                             final tile = ExpenseTile(
                               key: ValueKey(e.id),
                               expense: e,
-                              onTap: () => _showViewExpense(e),
-                              onDelete: () => _deleteExpense(e),
+                              selectionMode: _selecting,
+                              selected: _selectedIds.contains(e.id),
+                              onLongPress: () => _beginSelection(e),
+                              onSelectToggle: () => _toggleSelected(e),
+                              onTap: () => _openExpense(e),
                             );
                             if (!isNewMonth) return tile;
                             return Column(
@@ -514,6 +523,21 @@ class _AllExpensesScreenState extends State<AllExpensesScreen> {
             ),
           ],
         ),
+      ),
+      bottomNavigationBar: _selecting
+          ? SelectionBar(
+              label: '${_selectedIds.length} selected',
+              onClose: _clearSelection,
+              actions: [
+                BarAction(
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  danger: true,
+                  onTap: _deleteSelected,
+                ),
+              ],
+            )
+          : null,
       ),
     );
   }

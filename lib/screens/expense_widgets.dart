@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../main.dart';
 import '../models/category.dart';
@@ -433,70 +432,46 @@ Future<Tag?> _showCategoryFormDialog(BuildContext context, {Tag? existing}) {
 
 class ExpenseTile extends StatefulWidget {
   final Expense expense;
+
+  /// Opens the expense's own page.
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+
+  /// Starts multi-select on this expense.
+  final VoidCallback? onLongPress;
+
+  /// Adds or removes this expense from an in-progress selection.
+  final VoidCallback? onSelectToggle;
+
+  /// True once any expense is selected: the whole list switches to picking
+  /// rather than opening, so a stray tap can't navigate away mid-selection.
+  final bool selectionMode;
+  final bool selected;
 
   const ExpenseTile({
     super.key,
     required this.expense,
     required this.onTap,
-    required this.onDelete,
+    this.onLongPress,
+    this.onSelectToggle,
+    this.selectionMode = false,
+    this.selected = false,
   });
 
   @override
   State<ExpenseTile> createState() => _ExpenseTileState();
 }
 
-/// Swipe-left reveals a fixed-width delete icon behind the tile (capped at
-/// [_revealWidth] — the swipe itself never deletes); tapping that icon
-/// deletes immediately, with no confirmation dialog. This replaces a
-/// full-swipe-to-dismiss gesture that was too easy to trigger by accident
-/// while scrolling.
-class _ExpenseTileState extends State<ExpenseTile>
-    with SingleTickerProviderStateMixin {
-  static const _revealWidth = 72.0;
-
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _close() => _controller.animateTo(0.0, curve: Curves.easeOut);
-
-  void _handleDragUpdate(DragUpdateDetails details) {
-    final delta = details.primaryDelta ?? 0;
-    _controller.value = (_controller.value - delta / _revealWidth).clamp(0.0, 1.0);
-  }
-
-  void _handleDragEnd(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final open = velocity < -300 || (velocity <= 300 && _controller.value > 0.5);
-    _controller.animateTo(open ? 1.0 : 0.0, curve: Curves.easeOut);
-  }
-
+/// Deleting used to live behind a left swipe on this tile. It moved to
+/// multi-select — long-press an expense, pick as many as you like, delete
+/// the lot in one undoable go — matching what task tiles already do, and
+/// freeing the horizontal drag the swipe was eating.
+class _ExpenseTileState extends State<ExpenseTile> {
   void _handleTap() {
-    if (_controller.value > 0) {
-      _close();
+    if (widget.selectionMode) {
+      widget.onSelectToggle?.call();
       return;
     }
     widget.onTap();
-  }
-
-  void _handleDelete() {
-    HapticFeedback.mediumImpact();
-    widget.onDelete();
   }
 
   @override
@@ -506,6 +481,12 @@ class _ExpenseTileState extends State<ExpenseTile>
           Listenable.merge([CurrencySettings.instance, CategoryService.instance]),
       builder: (context, _) {
         final cat = CategoryService.instance.getById(widget.expense.categoryId);
+        // Composited over the card rather than used raw: a bare 16%-alpha
+        // fill would leave the tile mostly transparent.
+        final surface = widget.selected
+            ? Color.alphaBlend(
+                AppColors.primary.withValues(alpha: 0.16), context.cardColor)
+            : context.cardColor;
         return Container(
           margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
           decoration: BoxDecoration(
@@ -522,38 +503,11 @@ class _ExpenseTileState extends State<ExpenseTile>
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Row(
-                    children: [
-                      const Expanded(child: SizedBox()),
-                      GestureDetector(
-                        onTap: _handleDelete,
-                        child: Container(
-                          width: _revealWidth,
-                          color: AppColors.danger,
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.delete_outline_rounded,
-                              color: Colors.white, size: 22),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) => Transform.translate(
-                    offset: Offset(-_revealWidth * _controller.value, 0),
-                    child: child,
-                  ),
-                  child: GestureDetector(
-                    onHorizontalDragUpdate: _handleDragUpdate,
-                    onHorizontalDragEnd: _handleDragEnd,
-                    child: Material(
-                      color: context.cardColor,
+            child: Material(
+                      color: surface,
                       child: InkWell(
                         onTap: _handleTap,
+                        onLongPress: widget.onLongPress,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 12),
@@ -601,14 +555,22 @@ class _ExpenseTileState extends State<ExpenseTile>
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
+                              if (widget.selectionMode) ...[
+                                const SizedBox(width: 10),
+                                Icon(
+                                  widget.selected
+                                      ? Icons.check_circle_rounded
+                                      : Icons.circle_outlined,
+                                  size: 20,
+                                  color: widget.selected
+                                      ? AppColors.primary
+                                      : context.subtleColor,
+                                ),
+                              ],
                             ],
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ],
             ),
           ),
         );
