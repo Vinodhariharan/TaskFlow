@@ -499,9 +499,6 @@ class _HomeScreenState extends State<HomeScreen>
                               const SizedBox(height: 10),
                               _OverdueBadge(count: overdueCount),
                             ],
-                            const SizedBox(height: 8),
-                            if (todayTasks.isNotEmpty)
-                              _ProgressBar(tasks: todayTasks),
                           ],
                         ),
                       ),
@@ -820,32 +817,6 @@ class _BarAction extends StatelessWidget {
 // Widgets
 // ─────────────────────────────────────────────────────────────────────────────
 
-class _ProgressBar extends StatelessWidget {
-  final List<Task> tasks;
-  const _ProgressBar({required this.tasks});
-
-  @override
-  Widget build(BuildContext context) {
-    final done = tasks.where((t) => t.isCompleted).length;
-    final progress = tasks.isEmpty ? 0.0 : done / tasks.length;
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: progress,
-            backgroundColor: context.cardColor,
-            valueColor:
-                const AlwaysStoppedAnimation<Color>(AppColors.primary),
-            minHeight: 3,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 class _OverdueBadge extends StatelessWidget {
   final int count;
   const _OverdueBadge({required this.count});
@@ -1081,38 +1052,28 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
     widget.onToggle();
   }
 
-  Color? _borderColor() {
-    if (widget.task.isCompleted) return null;
-    if (widget.task.isOverdue) return AppColors.overdueColor;
-    if (widget.task.isScheduledToday) return AppColors.dueTodayColor;
-    return null;
-  }
 
-  /// The tile's own surface colour. Any tint must be composited *over* the
-  /// card colour rather than used on its own — a bare 5%-alpha tint would
-  /// leave the tile 95% transparent, showing the page background through
-  /// what should be a card.
+  /// The tile's own surface colour.
+  ///
+  /// Due state used to tint this and draw a border and a warning icon and a
+  /// date chip — four signals for one fact, of which the outline was the
+  /// loudest and the least attractive. The chip carries it alone now, so the
+  /// only thing left here is the multi-select highlight. It's composited
+  /// over the card colour rather than used on its own: a bare 16%-alpha fill
+  /// would leave the tile mostly transparent, showing the page background
+  /// through what should be a card.
   Color _surfaceColor(BuildContext context) {
-    final task = widget.task;
     if (widget.selected) {
       return Color.alphaBlend(
           AppColors.primary.withValues(alpha: 0.16), context.cardColor);
     }
-    if (task.isCompleted) return context.cardColor;
-    final Color? tint = task.isOverdue
-        ? AppColors.overdueColor.withValues(alpha: 0.05)
-        : (task.isScheduledToday
-            ? AppColors.dueTodayColor.withValues(alpha: 0.05)
-            : null);
-    if (tint == null) return context.cardColor;
-    return Color.alphaBlend(tint, context.cardColor);
+    return context.cardColor;
   }
 
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
     final isHigh = task.priority == TaskPriority.high;
-    final borderColor = _borderColor();
     final surface = _surfaceColor(context);
     // While picking, the leading circle reports selection rather than
     // completion — same shape, different question.
@@ -1123,12 +1084,12 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: borderColor != null
-            ? Border.all(color: borderColor.withValues(alpha: 0.5), width: 1.5)
-            : (isHigh && !task.isCompleted
-                ? Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.35), width: 1)
-                : null),
+        // The only border left means high priority, so it now says exactly
+        // one thing.
+        border: isHigh && !task.isCompleted
+            ? Border.all(
+                color: AppColors.primary.withValues(alpha: 0.35), width: 1)
+            : null,
         boxShadow: context.isDark
             ? null
             : [
@@ -1194,12 +1155,6 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                         children: [
                           Row(
                             children: [
-                              if (task.isOverdue) ...[
-                                const Icon(Icons.warning_amber_rounded,
-                                    size: 12,
-                                    color: AppColors.overdueColor),
-                                const SizedBox(width: 4),
-                              ],
                               Expanded(
                                 child: Text(
                                   task.title,
@@ -1268,17 +1223,14 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
                           ] else if (!task.isCompleted &&
                               task.isScheduledToday) ...[
                             const SizedBox(height: 4),
-                            _DateChip(
-                              date: task.scheduledDate!,
-                              isToday: true,
-                            ),
+                            _DateChip(date: task.scheduledDate!),
                           ],
                         ],
                       ),
                     ),
                     // Right side: priority dot + edit
                     if (!task.isCompleted) ...[
-                      if (isHigh && borderColor == null)
+                      if (isHigh)
                         Container(
                           width: 6,
                           height: 6,
@@ -1316,47 +1268,40 @@ class _TaskTileState extends State<_TaskTile> with TickerProviderStateMixin {
 
 class _DateChip extends StatelessWidget {
   final DateTime date;
+
+  /// Overdue when true, due today when false — the two states this chip
+  /// exists to mark. Anything else doesn't get one.
   final bool isOverdue;
-  final bool isToday;
-  const _DateChip(
-      {required this.date, this.isOverdue = false, this.isToday = false});
+
+  const _DateChip({required this.date, this.isOverdue = false});
 
   @override
   Widget build(BuildContext context) {
-    final baseColor = isOverdue ? AppColors.overdueColor : AppColors.dueTodayColor;
-    final textColor = context.isDark 
-        ? baseColor 
-        : (isOverdue ? const Color(0xFFD32F2F) : const Color(0xFFD97706));
-    final bgColor = baseColor.withValues(alpha: context.isDark ? 0.12 : 0.18);
+    // Filled, not a faint wash behind coloured text: this chip is now the
+    // only thing marking a task as due or overdue, so it has to carry the
+    // state on its own rather than corroborate a border that no longer
+    // exists.
+    final fill =
+        isOverdue ? AppColors.overdueColor : AppColors.dueTodayColor;
+    // Both fills are light — #FF6B6B and #FFD166 — so the label is dark
+    // rather than white, which would sit at about 1.7:1 on the amber.
     final label = isOverdue
-        ? 'Was due ${DateFormat('MMM d').format(date)}'
-        : 'Scheduled today';
+        ? 'OVERDUE · ${DateFormat('MMM d').format(date).toUpperCase()}'
+        : 'TODAY';
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: fill,
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isOverdue
-                ? Icons.warning_amber_rounded
-                : Icons.schedule_rounded,
-            size: 10,
-            color: textColor,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: textColor,
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppColors.darkBg,
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.4,
+        ),
       ),
     );
   }

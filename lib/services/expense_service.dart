@@ -26,12 +26,10 @@ class CategoryStat {
 class ExpenseKpis {
   final double yearly;
   final double last30Days;
-  final double monthlyAverage;
   final double thisMonth;
   const ExpenseKpis({
     required this.yearly,
     required this.last30Days,
-    required this.monthlyAverage,
     required this.thisMonth,
   });
 }
@@ -317,48 +315,31 @@ class ExpenseService {
     return totals;
   }
 
-  /// Yearly / last-30-days / trailing-12-month monthly average / this-month totals.
+  /// Yearly, last-30-days and this-month totals.
   Future<ExpenseKpis> getKpis({DateTime? now}) async {
     final n = _dateOnly(now ?? DateTime.now());
     final all = await _loadAll();
     if (all.isEmpty) {
-      return const ExpenseKpis(
-          yearly: 0, last30Days: 0, monthlyAverage: 0, thisMonth: 0);
+      return const ExpenseKpis(yearly: 0, last30Days: 0, thisMonth: 0);
     }
 
     final yearStart = DateTime(n.year, 1, 1);
     final last30Start = n.subtract(const Duration(days: 29));
     final monthStart = DateTime(n.year, n.month, 1);
-    final trailingWindowStart = DateTime(n.year, n.month - 11, 1);
 
-    double yearly = 0, last30 = 0, thisMonth = 0, trailingSum = 0;
-    DateTime? earliestMonth;
+    double yearly = 0, last30 = 0, thisMonth = 0;
 
     for (final e in all) {
       final d = _dateOnly(e.date);
-      if (!d.isAfter(n)) {
-        if (!d.isBefore(yearStart)) yearly += e.amount;
-        if (!d.isBefore(last30Start)) last30 += e.amount;
-        if (!d.isBefore(monthStart)) thisMonth += e.amount;
-        if (!d.isBefore(trailingWindowStart)) trailingSum += e.amount;
-      }
-      final em = DateTime(d.year, d.month, 1);
-      if (earliestMonth == null || em.isBefore(earliestMonth)) {
-        earliestMonth = em;
-      }
+      if (d.isAfter(n)) continue;
+      if (!d.isBefore(yearStart)) yearly += e.amount;
+      if (!d.isBefore(last30Start)) last30 += e.amount;
+      if (!d.isBefore(monthStart)) thisMonth += e.amount;
     }
-
-    final effectiveStart = earliestMonth!.isAfter(trailingWindowStart)
-        ? earliestMonth
-        : trailingWindowStart;
-    final monthsCount =
-        ((n.year - effectiveStart.year) * 12 + (n.month - effectiveStart.month) + 1)
-            .clamp(1, 12);
 
     return ExpenseKpis(
       yearly: yearly,
       last30Days: last30,
-      monthlyAverage: trailingSum / monthsCount,
       thisMonth: thisMonth,
     );
   }

@@ -247,20 +247,6 @@ class _ExpensesHomeTabState extends State<ExpensesHomeTab> {
                             );
                           }),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Builder(builder: (context) {
-                            final now = DateTime.now();
-                            final start = DateTime(now.year, now.month - 11, 1);
-                            return KpiCard(
-                              label: 'Monthly avg',
-                              value: kpis?.monthlyAverage ?? 0,
-                              icon: Icons.bar_chart_rounded,
-                              onTap: () => _openKpiDetail('Monthly Average',
-                                  'Trailing 12 months', start, now),
-                            );
-                          }),
-                        ),
                       ],
                     ),
                   ),

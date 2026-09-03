@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../app_info.dart';
 import '../app_mark.dart';
 import '../main.dart';
@@ -60,7 +61,7 @@ IconData screenIcon(int screenId) => switch (screenId) {
       _ => Icons.local_fire_department_outlined,
     };
 
-class _RootShellState extends State<RootShell> {
+class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   // Which screen is "primary" — shown leftmost on the toggle, and the one
   // the app opens on. Backed by the Settings > "default start tab" choice.
   int _primary = kTasksScreen;
@@ -79,6 +80,7 @@ class _RootShellState extends State<RootShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pageController = PageController();
     CurrencySettings.instance.load();
     CategoryService.instance.load();
@@ -125,6 +127,7 @@ class _RootShellState extends State<RootShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (NotificationService.instance.onReminderTapped == _openReminder) {
       NotificationService.instance.onReminderTapped = null;
     }
@@ -137,6 +140,35 @@ class _RootShellState extends State<RootShell> {
   }
 
   void _refreshWidgets() => WidgetService.instance.refresh();
+
+  /// Picks up anything the home screen widgets changed while the app was in
+  /// the background.
+  ///
+  /// Ticking a task from a widget runs in a background isolate that
+  /// home_widget spins up, and that isolate writes through its own
+  /// SharedPreferences instance. This isolate holds a separate in-memory
+  /// cache of the same file and has no idea it moved, so without the
+  /// reload() below every read here keeps serving what was on disk when the
+  /// app started — the widget showed the task done while the app still
+  /// listed it outstanding. The reverse direction always worked, because
+  /// the app writes and then pushes to the widgets itself.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed) return;
+    _reloadFromDisk();
+  }
+
+  Future<void> _reloadFromDisk() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (!mounted) return;
+    // Every screen already rebuilds off these; the missing piece was only
+    // that the store underneath them was stale.
+    TaskChangeNotifier.instance.notifyChanged();
+    ExpenseChangeNotifier.instance.notifyChanged();
+    HabitChangeNotifier.instance.notifyChanged();
+  }
 
   /// Acts on a tapped widget. The URIs are set in the widget providers;
   /// anything unrecognised just opens the app wherever it would normally

@@ -27,6 +27,10 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
   final _service = HabitService();
 
   List<Habit> _habits = [];
+
+  /// Habits that exist but aren't expected today. Shown below, quietly:
+  /// hiding them entirely made a light day look like a broken list.
+  List<Habit> _resting = [];
   Map<String, int> _counts = {};
   Map<String, Map<String, int>> _logs = {};
   bool _loading = true;
@@ -45,17 +49,23 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
   }
 
   Future<void> _refresh() async {
-    final habits = await _service.getTodayHabits();
+    final now = DateTime.now();
+    final all = await _service.getHabits();
+    final habits = all.where((h) => h.isActiveOn(now)).toList();
+    final resting = all.where((h) => !h.isActiveOn(now)).toList();
     final counts = await _service.getTodayCounts();
     // Streaks need each habit's full log; fetched once here rather than per
-    // row so the list doesn't do N reads on every rebuild.
+    // row so the list doesn't do N reads on every rebuild. Resting habits
+    // need theirs too — a rest day never breaks a streak, so theirs is
+    // still worth showing.
     final logs = <String, Map<String, int>>{};
-    for (final h in habits) {
+    for (final h in all) {
       logs[h.id] = await _service.logFor(h.id);
     }
     if (!mounted) return;
     setState(() {
       _habits = habits;
+      _resting = resting;
       _counts = counts;
       _logs = logs;
       _loading = false;
@@ -179,7 +189,7 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
                     ),
                   ),
                   const SliverToBoxAdapter(child: SizedBox(height: 12)),
-                  if (_habits.isEmpty)
+                  if (_habits.isEmpty && _resting.isEmpty)
                     SliverFillRemaining(
                       hasScrollBody: false,
                       child: _EmptyHabits(onAdd: () => _openForm()),
@@ -208,6 +218,44 @@ class _HabitsHomeTabState extends State<HabitsHomeTab> {
                         );
                       },
                     ),
+                  // Habits not expected today, under a heading kept
+                  // deliberately quiet — they're here to be seen, not to
+                  // compete with the ones you actually owe today.
+                  if (_resting.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                            24, _habits.isEmpty ? 4 : 22, 24, 8),
+                        child: Text(
+                          'NOT TODAY',
+                          style: TextStyle(
+                            color: context.mutedColor,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (ctx, i) {
+                          final habit = _resting[i];
+                          return _HabitTile(
+                            habit: habit,
+                            count: _counts[habit.id] ?? 0,
+                            streak: currentStreak(
+                                habit, _logs[habit.id] ?? const {}),
+                            resting: true,
+                            onTick: () {},
+                            onUntick: () {},
+                            onOpen: () => _openDetail(habit),
+                          );
+                        },
+                        childCount: _resting.length,
+                      ),
+                    ),
+                  ],
                   const SliverToBoxAdapter(child: SizedBox(height: 90)),
                 ],
               ),
@@ -220,6 +268,11 @@ class _HabitTile extends StatelessWidget {
   final Habit habit;
   final int count;
   final int streak;
+
+  /// Not expected today. The row dims and loses its tick controls — there's
+  /// nothing to log — but keeps its streak, which a rest day never breaks.
+  final bool resting;
+
   final VoidCallback onTick;
   final VoidCallback onUntick;
   final VoidCallback onOpen;
@@ -232,6 +285,7 @@ class _HabitTile extends StatelessWidget {
     required this.onTick,
     required this.onUntick,
     required this.onOpen,
+    this.resting = false,
   });
 
   @override
@@ -239,7 +293,9 @@ class _HabitTile extends StatelessWidget {
     final target = habit.targetCount < 1 ? 1 : habit.targetCount;
     final done = count >= target;
 
-    return Container(
+    return Opacity(
+      opacity: resting ? 0.55 : 1,
+      child: Container(
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       decoration: BoxDecoration(
         color: context.cardColor,
@@ -295,11 +351,13 @@ class _HabitTile extends StatelessWidget {
                             ),
                           ] else
                             Text(
-                              done ? 'Done today' : 'Not yet today',
+                              resting
+                                  ? 'Rest day'
+                                  : (done ? 'Done today' : 'Not yet today'),
                               style: TextStyle(
                                   color: context.mutedColor, fontSize: 12),
                             ),
-                          if (!habit.isSimple) ...[
+                          if (!resting && !habit.isSimple) ...[
                             const SizedBox(width: 8),
                             Text(
                               '$count/$target${habit.unit != null ? ' ${habit.unit}' : ''}',
@@ -315,7 +373,7 @@ class _HabitTile extends StatelessWidget {
                 const SizedBox(width: 8),
                 // Counted habits get a −/+ pair; simple ones a single tick.
                 // Both stop the tap from reaching the row's InkWell.
-                if (!habit.isSimple && count > 0) ...[
+                if (!resting && !habit.isSimple && count > 0) ...[
                   _RoundButton(
                     icon: Icons.remove_rounded,
                     onTap: onUntick,
@@ -324,16 +382,19 @@ class _HabitTile extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                 ],
-                _RoundButton(
-                  icon: done ? Icons.check_rounded : Icons.add_rounded,
-                  onTap: onTick,
-                  color: done ? Colors.white : habit.color,
-                  background:
-                      done ? habit.color : habit.color.withValues(alpha: 0.12),
-                ),
+                if (!resting)
+                  _RoundButton(
+                    icon: done ? Icons.check_rounded : Icons.add_rounded,
+                    onTap: onTick,
+                    color: done ? Colors.white : habit.color,
+                    background: done
+                        ? habit.color
+                        : habit.color.withValues(alpha: 0.12),
+                  ),
               ],
             ),
           ),
+        ),
         ),
       ),
     );

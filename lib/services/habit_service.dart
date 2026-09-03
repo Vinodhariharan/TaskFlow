@@ -91,7 +91,12 @@ class HabitService {
       });
   }
 
-  /// The habits expected today — what the Habits tab lists.
+  /// The habits expected today.
+  ///
+  /// The Habits tab no longer calls this: it needs the resting habits too,
+  /// so it takes the full list and splits it itself. Kept because "what's
+  /// due today" is the natural question for anything that only wants that
+  /// half.
   Future<List<Habit>> getTodayHabits({DateTime? now}) async {
     final today = now ?? DateTime.now();
     final habits = await getHabits();
